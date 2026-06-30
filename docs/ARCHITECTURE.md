@@ -6,14 +6,62 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Viktiga delar:
+Det finns ingen PHP/MySQL-backend i nuläget. Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
-- `app/`: Next app-kod för landningssidan.
-- `public/`: publika statiska filer, inklusive `public/uthyrning-hero.png`.
-- `build/`, `worker/` och `.openai/`: Sites/Cloudflare Worker-relaterad bygg- och hostingstruktur.
-- `package.json`, `package-lock.json`, `vite.config.ts`, `next.config.ts`, `postcss.config.mjs`, `tsconfig.json`: frontendens byggsetup.
+## Nuvarande frontendstruktur
 
-Denna struktur ska bevaras tills en dokumenterad migrering eller samexistens med PHP-strukturen beslutas.
+Landningssidan ligger i Sites/vinext-strukturen:
+
+```text
+app/
+  page.tsx        Startsida och sidsektioner.
+  globals.css    Styling för landningssidan.
+  layout.tsx     Metadata, språk och global layout.
+  chatgpt-auth.ts
+
+public/
+  uthyrning-hero.png
+  favicon.svg
+  file.svg
+  globe.svg
+  window.svg
+
+build/
+  sites-vite-plugin.ts
+
+worker/
+  index.ts
+
+.openai/
+  hosting.json
+```
+
+Bygg- och konfigurationsfiler:
+
+```text
+package.json
+package-lock.json
+vite.config.ts
+next.config.ts
+postcss.config.mjs
+tsconfig.json
+eslint.config.mjs
+```
+
+Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas eller delas upp utan en tydlig uppgift och dokumenterad plan.
+
+## Nuvarande databasrelaterade struktur
+
+Följande filer kommer från Sites/vinext-startermallen och är inte en färdig produktdatabas:
+
+```text
+db/
+drizzle/
+drizzle.config.ts
+examples/
+```
+
+De får användas som referens senare, men riktiga databasbeslut ska följa `docs/DATABASE_PRINCIPLES.md`.
 
 ## Målarkitektur
 

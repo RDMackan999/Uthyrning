@@ -2,29 +2,83 @@
 
 Uthyrning är en svensk uthyrningsplattform för verktyg, maskiner, släp och utrustning.
 
-Det här repot är nu tänkt att vara projektets huvudkälla. Den nuvarande fungerande landningssidan är överflyttad från Codex Sites-projektet och behålls i sin befintliga Sites/vinext-struktur tills en PHP/MySQL-backend byggs stegvis.
+Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landningssidan är överflyttad från Codex Sites och behålls i sin befintliga Sites/vinext-struktur tills PHP/MySQL-backend byggs stegvis.
 
-## Nuvarande frontend
+## Nuvarande status
 
-Landningssidan är byggd som ett Sites/vinext-projekt med Next/React och Tailwind CSS.
+- Fungerande landningssida: ja.
+- Backend: inte byggd ännu.
+- Databas: inte byggd ännu.
+- BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
-Viktiga filer:
+## Var landningssidan ligger
 
-- `app/page.tsx`: startsidans innehåll och enklare klientinteraktioner.
-- `app/globals.css`: all visuell styling för landningssidan.
+Landningssidan ligger i:
+
+- `app/page.tsx`: startsidans innehåll, sektioner och enklare klientinteraktion.
+- `app/globals.css`: styling för landningssidan.
 - `app/layout.tsx`: metadata, språk och global layout.
-- `public/uthyrning-hero.png`: hero-bilden som används på startsidan.
-- `package.json` och `package-lock.json`: Node-baserad byggsetup.
-- `vite.config.ts`, `next.config.ts`, `postcss.config.mjs` och `tsconfig.json`: bygg- och typkonfiguration.
+- `public/uthyrning-hero.png`: hero-bilden på startsidan.
+
+Relaterad Sites/Worker-struktur:
+
 - `.openai/hosting.json`: Sites-hostingmetadata.
+- `build/sites-vite-plugin.ts`: Sites/Vite-plugin.
+- `worker/`: Worker-entrypoint.
+- `db/`, `drizzle/`, `drizzle.config.ts`: starterstruktur för framtida databasarbete, inte aktiv produktdatabas.
+- `examples/`: exempel från startermallen.
+
+## Lokal utveckling
+
+Projektet kräver Node enligt `package.json`:
+
+```text
+Node >= 22.13.0
+```
+
+Installera beroenden:
+
+```bash
+npm ci
+```
+
+Starta lokal utvecklingsserver:
+
+```bash
+npm run dev
+```
+
+Bygg projektet:
+
+```bash
+npm run build
+```
+
+Kör lint:
+
+```bash
+npm run lint
+```
+
+## Kommandon
+
+| Kommando | Syfte |
+| --- | --- |
+| `npm run dev` | Startar vinext-utvecklingsservern. |
+| `npm run build` | Bygger Sites/vinext-projektet. |
+| `npm run start` | Startar byggd vinext-app. |
+| `npm run lint` | Kör ESLint mot källkoden. |
+| `npm run db:generate` | Genererar Drizzle-migrationer när schemaarbete införs senare. |
 
 ## Sites kontra public_html
 
-Den långsiktiga plattformen ska byggas med PHP 8.x, MySQL/MariaDB och PDO. En klassisk PHP-struktur med `public_html/` är därför fortfarande målbilden för backendarbetet.
+Den långsiktiga plattformen ska byggas med PHP 8.x, MySQL/MariaDB och PDO. En klassisk PHP-struktur med `public_html/` är därför fortfarande målbilden för backend.
 
-Det finns dock en fungerande Sites-landningssida idag. För att inte flytta sönder fungerande kod behålls Sites-strukturen tills vidare. När PHP-grunden byggs ska migrering eller samexistens mellan Sites-frontend och `public_html/` dokumenteras i `docs/ARCHITECTURE.md` innan kod flyttas.
+Just nu finns ingen aktiv `public_html/`-struktur i källan. Den fungerande landningssidan ligger i Sites-strukturen och ska inte flyttas innan en dokumenterad strategi finns.
 
-## Planerad teknik
+När PHP/MySQL-grunden byggs ska `docs/ARCHITECTURE.md` uppdateras med hur frontend, backend, API och hosting ska samexistera.
+
+## Planerad teknik senare
 
 - PHP 8.x
 - MySQL eller MariaDB
@@ -35,7 +89,7 @@ Det finns dock en fungerande Sites-landningssida idag. För att inte flytta sön
 
 ## Planerade framtida funktioner
 
-Följande ska systemet kunna stödja senare, men de är inte implementerade i denna PR:
+Följande ska systemet kunna stödja senare, men de är inte implementerade ännu:
 
 - BankID
 - Swish
@@ -49,24 +103,13 @@ Följande ska systemet kunna stödja senare, men de är inte implementerade i de
 - Underhåll och service
 - Marknadsplats för externa uthyrare
 
-## Kom igång med nuvarande Sites-frontend
-
-```bash
-npm ci
-npm run dev
-```
-
-Bygg för Sites:
-
-```bash
-npm run build
-```
-
 ## Styrdokument
 
 Läs dessa innan större arbete påbörjas:
 
 - [Arkitektur](docs/ARCHITECTURE.md)
+- [Codex workflow](docs/CODEX_WORKFLOW.md)
+- [MVP-scope](docs/MVP_SCOPE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Databasprinciper](docs/DATABASE_PRINCIPLES.md)
 - [Säkerhet](docs/SECURITY.md)
