@@ -1,47 +1,139 @@
-# Codex Rules
+# CODEX_RULES.md
 
-Detta dokument beskriver bindande regler för hur Codex ska arbeta i projektet.
+# AI Development Rules
 
-## Startregler
+Detta dokument innehåller bindande regler för AI-assistenter (Codex, ChatGPT, Copilot och framtida AI-verktyg) som arbetar i projektet.
 
-- Codex ska alltid läsa `README.md`, `docs/ARCHITECTURE.md`, `docs/CODEX_RULES.md` och `docs/PROJECT_DECISIONS.md` innan arbete påbörjas.
-- Codex ska alltid bekräfta att rätt repo används: `RDMackan999/Uthyrning`.
-- Codex ska bara arbeta med en avgränsad uppgift åt gången.
-- Codex ska kontrollera aktuell branch och git status innan ändringar görs.
+Syftet är att säkerställa hög kodkvalitet, en stabil arkitektur och ett långsiktigt hållbart system.
 
-## Begränsningar
+---
 
-- Codex får inte ta stora arkitekturbeslut utan uttrycklig instruktion.
-- Codex får inte bygga BankID, Swish, Fortnox, databas, backend eller API utan separat specificerad issue.
-- Codex ska inte ändra design eller layout om uppgiften inte uttryckligen gäller design.
-- Codex ska inte skapa spekulativa funktioner eller framtida integrationer.
+# Projektets källa till sanning
 
-## Validering
+GitHub-repot är projektets **Source of Truth**.
 
-- Codex ska alltid köra relevanta tester.
-- Om frontend påverkas ska minst följande köras:
+All utveckling ska utgå från den senaste versionen av GitHub.
+
+Om lokal kod skiljer sig från GitHub ska AI stoppa arbetet och uppmärksamma användaren innan några större ändringar görs.
+
+---
+
+# Dokument som alltid ska läsas
+
+Innan arbete påbörjas ska följande dokument läsas i denna ordning:
+
+1. README.md
+2. docs/ARCHITECTURE.md
+3. docs/CODEX_RULES.md
+4. docs/PROJECT_DECISIONS.md
+5. docs/DATABASE_DESIGN.md (när den finns)
+6. docs/ROADMAP.md
+
+---
+
+# Kontroll före arbete
+
+Innan någon kod skrivs ska följande verifieras:
+
+- Rätt GitHub-repo används.
+- Aktuell branch är korrekt.
+- Git-status är ren eller förstådd.
+- Lokala ändringar har identifierats.
+- Uppgiften är tydligt avgränsad.
+- Ingen annan öppen PR påverkar samma område.
+
+Om någon kontroll misslyckas ska arbetet stoppas.
+
+---
+
+# Arbetsprinciper
+
+AI ska:
+
+- endast arbeta med en avgränsad uppgift åt gången
+- göra så små ändringar som möjligt
+- återanvända befintlig kod när det är lämpligt
+- undvika duplicerad kod (DRY)
+- prioritera enkel och tydlig kod
+- följa projektets kodstandard
+- skriva kod som är lätt att underhålla
+- aldrig spekulera om krav
+
+---
+
+# Arkitektur
+
+AI får inte utan uttrycklig instruktion:
+
+- ändra projektets arkitektur
+- byta ramverk
+- flytta större delar av projektet
+- ändra databasdesign
+- ändra API-design
+- ändra säkerhetsmodell
+- införa nya större beroenden
+- ändra projektstruktur
+
+Förslag får lämnas, men implementation kräver godkännande.
+
+---
+
+# Funktioner som kräver separat uppgift
+
+Följande får aldrig implementeras utan en separat issue eller specifikation:
+
+- BankID
+- Swish
+- Fortnox
+- API
+- Databas
+- Migrationer
+- Seeder
+- Backend
+- Behörighetssystem
+- Betalningar
+- Autentisering
+- AI-funktioner
+- IoT
+- GPS
+- QR-koder
+
+---
+
+# Frontend
+
+Om uppgiften inte uttryckligen gäller design får AI inte:
+
+- ändra layout
+- ändra färger
+- ändra typografi
+- ändra komponentstruktur
+- ändra UX-flöden
+- byta frontend-teknik
+
+---
+
+# Databas
+
+AI får inte skapa:
+
+- SQL
+- Tabeller
+- Migrationer
+- Views
+- Stored Procedures
+- Seeder
+
+förrän databasdesignen är godkänd.
+
+---
+
+# Tester
+
+Efter varje ändring ska relevanta tester köras.
+
+Frontend:
 
 ```bash
 npm run lint
 npm run build
-```
-
-- Om validering inte kan köras ska Codex tydligt dokumentera varför.
-
-## Branch, commit och PR
-
-- Codex ska skapa branch, commit och PR.
-- PR ska beskriva vad som ändrats.
-- PR ska beskriva vad som inte ändrats.
-- PR ska beskriva hur ändringen har testats.
-- Draft PR används som standard tills ändringen är granskad och redo.
-
-## Stoppa och fråga
-
-Codex ska stoppa och fråga om något av följande upptäcks:
-
-- Lokala ändringar som inte hör till uppgiften.
-- Fel repo.
-- Oklar struktur.
-- Motstridiga instruktioner.
-- Risk för att ändra design eller app-logik utanför uppgiften.
