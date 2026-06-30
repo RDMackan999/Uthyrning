@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import Image from "next/image";
 
 const categories = [
   { name: "Verktyg", detail: "Borrar, sågar och handverktyg", icon: "VR" },
@@ -207,14 +206,10 @@ export default function Home() {
         </div>
 
         <div className="hero-media">
-          <Image
-            src="/uthyrning-hero.png"
-            alt="Verktyg, byggutrustning och släpvagn redo för uthyrning"
-            width={1693}
-            height={929}
-            priority
-            sizes="(max-width: 1120px) calc(100vw - 32px), 520px"
-          />
+          <img
+          src="/uthyrning-hero.png"
+          alt="Verktyg, byggutrustning och släpvagn redo för uthyrning"
+/>
           <div className="hero-status" aria-label="Exempel på tillgänglighet">
             <strong>Ledigt i veckan</strong>
             <span>Kalenderstöd förbereds</span>
