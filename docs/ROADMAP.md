@@ -1,81 +1,321 @@
-# Roadmap
+# ROADMAP.md
 
-Roadmapen beskriver föreslagen utvecklingsordning. Varje sprint ska brytas ner i issues innan implementation.
+# Projektets Roadmap
 
-## Sprint 0: projektgrund
+## Syfte
 
-- Flytta över fungerande Sites-landningssida.
-- Skapa styrdokument.
-- Behålla byggsetup och hero-bild.
-- Dokumentera att PHP-struktur kommer senare.
+Detta dokument beskriver den övergripande utvecklingsplanen för projektet **Uthyrning**.
 
-## Sprint 1: teknisk grund
+Roadmapen visar:
 
-- Besluta hur Sites-frontend och PHP-backend ska samexistera.
-- Skapa PHP-bootstrap.
-- Skapa config-laddning med `config.example.php` och lokal `config.php`.
-- Skapa PDO-anslutning.
-- Skapa enkel felhantering och loggstruktur.
+- utvecklingsordning
+- prioriteringar
+- beroenden
+- mål för varje sprint
+- när funktioner anses färdiga
 
-## Sprint 2: databas
+Roadmapen är ett levande dokument.
 
-- Skapa första databasschema.
-- Införa migrationer.
-- Skapa tabeller för användare, roller, objekt och grundstatusar.
-- Säkerställa foreign keys, tidsstämplar och soft delete där det passar.
+Sprintar får delas upp, flyttas eller ändras om projektets behov förändras.
 
-## Sprint 3: användare/roller
+---
 
-- Skapa inloggning med säker lösenordshashning.
-- Skapa sessionshantering.
-- Skapa roller för admin, kund och uthyrare.
-- Skapa behörighetskontroller.
+# Utvecklingsprincip
 
-## Sprint 4: objekt
+Projektet byggs lager för lager.
 
-- Skapa objektkatalog.
-- Skapa kategorier.
-- Skapa bilder och dokumenterat skick.
-- Skapa pris per dag och grundvillkor.
-- Skapa objektflöde för uthyrare.
+Varje sprint ska ge ett stabilt och testbart resultat innan nästa sprint påbörjas.
 
-## Sprint 5: bokningar/kalender
+Prioriteringsordning:
 
-- Skapa tillgänglighetskalender.
-- Skapa bokningsförfrågan.
-- Hantera överlappande bokningar.
-- Skapa statusflöden för bokning.
+1. Dokumentation
+2. Arkitektur
+3. Databas
+4. Backend
+5. Administration
+6. Kundfunktioner
+7. Integrationer
+8. Marknadsplats
 
-## Sprint 6: avtal
+---
 
-- Skapa avtalsmallar.
-- Förbereda digital signering.
-- Koppla avtal till bokningar och objekt.
-- Spara avtalsversioner och händelser.
+# Sprint 0 – Projektgrund
 
-## Sprint 7: betalningar/Fortnox/Swish
+## Mål
 
-- Förbereda betalstatusar.
-- Utreda Swish-flöde.
-- Utreda Fortnox fakturering.
-- Dokumentera krav innan integrationer byggs.
+Skapa en stabil utvecklingsmiljö och en gemensam teknisk grund.
 
-## Sprint 8: BankID
+### Leverabler
 
-- Utreda BankID-leverantör.
-- Dokumentera autentiseringsflöden.
-- Koppla verifiering till användarkonto.
-- Säkerställa fallback och loggning.
+- GitHub-repository
+- Dokumentation
+- VS Code-konfiguration
+- Node.js
+- Laragon
+- Lokal databas
+- Projektstruktur
+- AI-regler
+- Arbetsflöde
+- Databasprinciper
 
-## Sprint 9: UH/service
+### Definition of Done
 
-- Skapa underhålls- och servicehistorik för objekt.
-- Skapa kontrollpunkter före och efter uthyrning.
-- Stödja serviceintervall och interna notiser.
+- Alla utvecklare kan köra projektet lokalt.
+- Dokumentationen är komplett.
+- Git-flödet fungerar.
 
-## Sprint 10: marknadsplats
+---
 
-- Öppna för externa uthyrare.
-- Skapa provision och intäktsrapportering.
-- Skapa omdömen, betyg och moderation.
-- Separera tydligare mellan plattform, uthyrare och kund.
+# Sprint 1 – Teknisk plattform
+
+## Mål
+
+Skapa den tekniska grunden för backend.
+
+### Leverabler
+
+- PHP-bootstrap
+- Config-system
+- PDO-anslutning
+- Felhantering
+- Loggning
+- Sessionshantering
+- Grundläggande routing
+
+### Definition of Done
+
+Backend kan startas lokalt och ansluta till databasen.
+
+---
+
+# Sprint 2 – Databas
+
+## Mål
+
+Implementera den godkända datamodellen.
+
+### Leverabler
+
+- Migrationer
+- Grundtabeller
+- Foreign Keys
+- Index
+- Soft Delete
+- Audit Trail-struktur
+
+### Definition of Done
+
+Databasen kan skapas från grunden med migrationer.
+
+---
+
+# Sprint 3 – Användare och behörigheter
+
+## Mål
+
+Skapa säker autentisering.
+
+### Leverabler
+
+- Inloggning
+- Sessionshantering
+- Roller
+- Behörigheter
+- Administratör
+
+### Definition of Done
+
+Behörigheter fungerar korrekt.
+
+---
+
+# Sprint 4 – Objekt
+
+## Mål
+
+Administrera uthyrningsobjekt.
+
+### Leverabler
+
+- Objekt
+- Kategorier
+- Bilder
+- Dokument
+- Priser
+- Status
+- Deposition
+
+### Definition of Done
+
+Objekt kan administreras fullt ut.
+
+---
+
+# Sprint 5 – Bokningar
+
+## Mål
+
+Skapa ett fungerande bokningsflöde.
+
+### Leverabler
+
+- Bokningsförfrågan
+- Kalender
+- Tillgänglighet
+- Statusflöde
+- Bokningshistorik
+
+### Definition of Done
+
+Kund kan genomföra en bokningsförfrågan.
+
+---
+
+# Sprint 6 – Avtal
+
+## Mål
+
+Hantera uthyrningsavtal.
+
+### Leverabler
+
+- Avtalsmallar
+- Versioner
+- Koppling till bokning
+- Historik
+
+### Definition of Done
+
+Avtal kan skapas och kopplas till bokningar.
+
+---
+
+# Sprint 7 – Betalningar
+
+## Mål
+
+Förbereda ekonomiflöden.
+
+### Leverabler
+
+- Betalstatus
+- Deposition
+- Fakturastatus
+- Dokumenterad integrationsstrategi
+
+### Definition of Done
+
+Systemet kan hantera manuella betalningar.
+
+---
+
+# Sprint 8 – Administration
+
+## Mål
+
+Färdigställa administrationsdelen.
+
+### Leverabler
+
+- Dashboard
+- Statistik
+- Loggar
+- Inställningar
+- Kategorier
+- Användare
+
+### Definition of Done
+
+Administratören kan hantera hela systemet.
+
+---
+
+# Sprint 9 – Service
+
+## Mål
+
+Införa service och underhåll.
+
+### Leverabler
+
+- Servicehistorik
+- Besiktningar
+- Kontrollpunkter
+- Påminnelser
+
+### Definition of Done
+
+Service kan registreras och följas upp.
+
+---
+
+# Sprint 10 – MVP färdig
+
+## Mål
+
+Systemet ska kunna användas i verklig drift.
+
+### MVP ska kunna
+
+- Visa objekt
+- Ta emot bokningar
+- Hantera kunder
+- Hantera avtal
+- Hantera betalstatus
+- Hantera service
+- Hantera dokument
+
+### Definition of Done
+
+En uthyrare kan driva sin verksamhet i systemet.
+
+---
+
+# Version 2
+
+När MVP är stabil påbörjas Version 2.
+
+Planerade funktioner:
+
+- Flera uthyrare
+- Marknadsplats
+- Provision
+- BankID
+- Swish
+- Fortnox
+- API
+- Mobilapp
+- PWA
+- QR-koder
+- GPS
+- AI
+- BI
+- Flera språk
+- Flera valutor
+
+---
+
+# Prioriteringsprincip
+
+Vid konflikt mellan funktioner gäller följande prioritering:
+
+1. Säkerhet
+2. Stabilitet
+3. Datakvalitet
+4. Underhållbarhet
+5. Användarupplevelse
+6. Nya funktioner
+
+---
+
+# Ändringshantering
+
+Roadmapen är ett levande dokument.
+
+Större förändringar ska:
+
+- dokumenteras i PROJECT_DECISIONS.md
+- brytas ner till Issues
+- implementeras via Pull Requests
+
+Ingen sprint påbörjas innan föregående sprint är stabil.
