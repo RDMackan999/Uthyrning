@@ -127,6 +127,25 @@ AI får inte skapa:
 förrän databasdesignen är godkänd.
 
 ---
+# Dokumentationsregler
+
+Dokumentationen är nu etablerad.
+
+Codex ska inte skapa nya `.md`-filer på eget initiativ.
+
+Nya dokument får endast skapas om:
+
+- användaren uttryckligen ber om det,
+- dokumentet ersätter ett befintligt dokument enligt beslut,
+- eller en förändring kräver ny dokumentation enligt en dokumenterad arkitekturbeslut i `PROJECT_DECISIONS.md`.
+
+Om Codex anser att ny dokumentation behövs ska den:
+
+1. föreslå dokumentets namn,
+2. motivera varför det behövs,
+3. invänta godkännande innan filen skapas.
+
+Vid normala kodändringar ska befintliga dokument uppdateras istället för att nya skapas.
 
 # Tester
 
