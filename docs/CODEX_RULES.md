@@ -45,6 +45,18 @@ Innan någon kod skrivs ska följande verifieras:
 Om någon kontroll misslyckas ska arbetet stoppas.
 
 ---
+# Scope Control
+
+Codex ska alltid hålla sig till den aktuella uppgiften.
+
+Den ska inte:
+
+- förbättra orelaterad kod,
+- refaktorera andra delar av projektet,
+- uppdatera dokumentation utanför uppgiftens omfattning,
+- lägga till funktioner som inte uttryckligen efterfrågats.
+
+Om Codex identifierar förbättringar utanför aktuell uppgift ska dessa beskrivas i Pull Requestens avsnitt "Förslag till nästa steg" istället för att implementeras.
 
 # Arbetsprinciper
 
