@@ -1,0 +1,14 @@
+{
+  "name": "rdmackan999/uthyrning",
+  "description": "PHP backend foundation for the Uthyrning rental platform.",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/"
+    }
+  }
+}
