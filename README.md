@@ -7,7 +7,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 ## Nuvarande status
 
 - Fungerande landningssida: ja.
-- Backend: Sprint 1A-grund finns som PHP-skelett utan affärslogik.
+- Backend: Sprint 1B-kärna finns för config, routing, request/response, logging och felhantering.
 - Databas: inte byggd ännu.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
@@ -82,15 +82,17 @@ När PHP/MySQL-grunden byggs ska `docs/ARCHITECTURE.md` uppdateras med hur front
 
 ## PHP-backendgrund
 
-Sprint 1A introducerar en teknisk PHP-grund utan affärsfunktioner:
+Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerar den första fungerande kärnan:
 
 - `composer.json`: PSR-4-autoloading för namespace `App\`.
-- `app/Core/`: tomma grundklasser för framtida bootstrap, config, router, request, response, logger, error handler och PDO-hantering.
+- `app/Core/`: bootstrap, config, router, request, response, logger och error handler.
 - `config/`: endast exempelkonfigurationer.
+- `routes/web.php`: tekniska routes för `/` och `/health`.
 - `database/`: tomma kataloger för framtida migrations, seeders och schema.
-- `routes/`, `storage/` och `tests/`: tomma grundkataloger för kommande sprintar.
+- `storage/logs/`: plats för filbaserad loggning.
+- `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 
-Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1A.
+Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1B.
 
 ## Planerad teknik senare
 
