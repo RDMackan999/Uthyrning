@@ -37,11 +37,17 @@ Version 2 förbereds för flera uthyrare och marknadsplats.
 - TypeScript
 - Tailwind CSS
 
-## Backend (planerad)
+## Backend
+
+Sprint 1A innehåller endast teknisk backend-grund:
 
 - PHP 8.x
-- PDO
-- MariaDB / MySQL
+- Composer med PSR-4-autoloading för namespace `App\`
+- Tomma Core-klasser
+- Config-exempel
+- Tomma kataloger för kommande lager
+
+Ingen login, inga användare, inga roller, inga bokningar, inga objekt, inget API och inga integrationer är implementerade.
 
 ## Databas
 
@@ -51,9 +57,11 @@ MariaDB / MySQL
 
 Databasnamn:
 
-```
+```text
 uthyrning_dev
 ```
+
+Databasen kan finnas lokalt, men Sprint 1A skapar inga tabeller, migrationer eller seeders.
 
 ---
 
@@ -113,6 +121,15 @@ Installeras med:
 - Apache
 - phpMyAdmin
 
+Verifiera PHP och Composer om de ska användas från terminalen:
+
+```bash
+php -v
+composer --version
+```
+
+Om kommandona inte hittas behöver PHP och Composer läggas i PATH eller köras via Laragons terminal.
+
 ---
 
 # Rekommenderade VS Code Extensions
@@ -162,13 +179,13 @@ npm run dev
 
 Vanligtvis:
 
-```
+```text
 http://localhost:3000
 ```
 
 eller
 
-```
+```text
 http://localhost:5173
 ```
 
@@ -190,6 +207,35 @@ npm run lint
 
 ---
 
+# Backend-grund
+
+Sprint 1A använder Composer för autoloading men installerar inga externa bibliotek.
+
+Kontrollera Composer-konfiguration:
+
+```bash
+composer validate
+```
+
+Generera autoload lokalt när Composer finns installerat:
+
+```bash
+composer dump-autoload
+```
+
+`vendor/` ska inte committas.
+
+Riktiga config-filer ska skapas lokalt från exemplen vid behov:
+
+```text
+config/config.example.php
+config/database.example.php
+```
+
+Skapa inte och committa inte riktiga config-filer med hemligheter.
+
+---
+
 # Databas
 
 Starta Laragon.
@@ -201,7 +247,7 @@ Starta:
 
 Öppna phpMyAdmin.
 
-Skapa databasen:
+Skapa databasen lokalt om den saknas:
 
 ```sql
 CREATE DATABASE uthyrning_dev
@@ -209,13 +255,15 @@ CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
 
+Denna databas är endast för lokal utveckling. Sprint 1A skapar inga tabeller.
+
 ---
 
 # Git Workflow
 
 Varje uppgift ska följa:
 
-```
+```text
 main
 
 ↓
@@ -253,7 +301,7 @@ Merge
 
 Exempel:
 
-```
+```text
 feature/login
 
 feature/database
@@ -273,7 +321,7 @@ refactor/auth
 
 Exempel:
 
-```
+```text
 Add booking calendar
 
 Fix hero image
@@ -305,37 +353,38 @@ Draft PR används som standard.
 
 Nuvarande frontend:
 
-```
-app/
-
+```text
+app/page.tsx
+app/layout.tsx
+app/globals.css
 public/
-
 worker/
-
 build/
 ```
 
-Framtida backend:
+Sprint 1A backend-grund:
 
+```text
+app/Core/
+app/Controllers/
+app/Middleware/
+app/Models/
+app/Repositories/
+app/Services/
+app/Helpers/
+config/
+database/migrations/
+database/seeders/
+database/schema/
+routes/
+storage/cache/
+storage/logs/
+storage/sessions/
+storage/temp/
+tests/
 ```
-public_html/
 
-admin/
-
-api/
-
-customer/
-
-renter/
-
-cms/
-
-assets/
-
-database/
-
-docs/
-```
+`app/` delas just nu mellan Vinext-frontend och PHP-skelett. Frontendens befintliga filer ska inte ändras av backendarbete.
 
 ---
 
@@ -362,7 +411,13 @@ npm run build
 
 Backend:
 
-Kommer senare.
+När PHP finns installerat ska nya PHP-filer syntaxkontrolleras:
+
+```bash
+php -l path/to/file.php
+```
+
+Databastester och migrationstester kommer senare när databasen implementeras.
 
 ---
 
@@ -372,7 +427,7 @@ Kommer senare.
 
 Kontrollera:
 
-```
+```text
 node -v
 
 npm -v
@@ -388,11 +443,28 @@ Använd Command Prompt eller ändra Execution Policy.
 
 Kontrollera att filen ligger i:
 
-```
+```text
 public/
 ```
 
 och kan öppnas direkt via webbläsaren.
+
+---
+
+## PHP eller Composer fungerar inte
+
+Kontrollera:
+
+```bash
+php -v
+composer --version
+```
+
+Om kommandona saknas:
+
+- kontrollera Laragon-terminalen
+- lägg till PHP/Composer i PATH
+- installera Composer lokalt om det saknas
 
 ---
 
@@ -405,7 +477,7 @@ Kontrollera i Laragon:
 
 Databasport:
 
-```
+```text
 3306
 ```
 
@@ -415,7 +487,7 @@ Databasport:
 
 Kontrollera:
 
-```
+```bash
 git status
 git branch
 git remote -v

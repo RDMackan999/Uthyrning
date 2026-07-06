@@ -6,7 +6,9 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns ingen PHP/MySQL-backend i nuläget. Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
+Det finns en första PHP-backendgrund från Sprint 1A. Den innehåller endast mappar, Composer-autoloading, config-exempel och tomma Core-klasser. Det finns ingen affärslogik, ingen inloggning, inget API och inga databastabeller.
+
+Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
 ## Nuvarande frontendstruktur
 
@@ -49,6 +51,40 @@ eslint.config.mjs
 ```
 
 Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas eller delas upp utan en tydlig uppgift och dokumenterad plan.
+
+## Nuvarande backendstruktur
+
+Sprint 1A lägger till ett passivt PHP-skelett i samma repository. Strukturen är förberedande och ska inte köras som produktionsbackend ännu.
+
+```text
+app/
+  Core/
+  Controllers/
+  Middleware/
+  Models/
+  Repositories/
+  Services/
+  Helpers/
+
+config/
+
+database/
+  migrations/
+  seeders/
+  schema/
+
+routes/
+
+storage/
+  cache/
+  logs/
+  sessions/
+  temp/
+
+tests/
+```
+
+`app/page.tsx`, `app/layout.tsx` och `app/globals.css` tillhör fortfarande frontend. PHP-koden under `app/Core/` använder namespace `App\Core` via Composer PSR-4-autoloading. Denna delning av rotkatalogen är tillfällig och ska följas upp innan routing, controllers eller publik PHP-entrypoint byggs.
 
 ## Nuvarande databasrelaterade struktur
 
@@ -115,12 +151,12 @@ När backend byggs ska PHP-kod följa dessa principer:
 
 När PHP-konfiguration införs ska `config.example.php` visa vilka inställningar som krävs. Riktig `config.php` ska aldrig committas.
 
-Rekommenderad framtida ordning:
+Nuvarande ordning:
 
-1. `config.example.php` visar struktur och exempelvärden.
-2. Lokal `config.php` innehåller verkliga värden på servern.
-3. En bootstrap/include-fil laddar konfigurationen och skapar PDO-anslutning.
-4. Felhantering, sessionsinställningar och loggning initieras centralt.
+1. `config/config.example.php` visar appinställningar som namn, miljö, debug, timezone och base URL.
+2. `config/database.example.php` visar framtida MySQL/MariaDB-inställningar för lokal utveckling.
+3. Riktiga config-filer får inte committas.
+4. Bootstrap, PDO-anslutning, felhantering, sessionsinställningar och loggning implementeras i senare sprintar.
 
 ## API-struktur senare
 
