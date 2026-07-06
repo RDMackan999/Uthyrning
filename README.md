@@ -7,7 +7,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 ## Nuvarande status
 
 - Fungerande landningssida: ja.
-- Backend: inte byggd ännu.
+- Backend: Sprint 1A-grund finns som PHP-skelett utan affärslogik.
 - Databas: inte byggd ännu.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
@@ -19,6 +19,8 @@ Landningssidan ligger i:
 - `app/globals.css`: styling för landningssidan.
 - `app/layout.tsx`: metadata, språk och global layout.
 - `public/uthyrning-hero.png`: hero-bilden på startsidan.
+
+Frontendens design och landningssidans kod ligger kvar i Sites/Vinext-strukturen. PHP-grunden ska inte ändra landningssidans layout, komponenter eller visuella uttryck.
 
 Relaterad Sites/Worker-struktur:
 
@@ -77,6 +79,18 @@ Den långsiktiga plattformen ska byggas med PHP 8.x, MySQL/MariaDB och PDO. En k
 Just nu finns ingen aktiv `public_html/`-struktur i källan. Den fungerande landningssidan ligger i Sites-strukturen och ska inte flyttas innan en dokumenterad strategi finns.
 
 När PHP/MySQL-grunden byggs ska `docs/ARCHITECTURE.md` uppdateras med hur frontend, backend, API och hosting ska samexistera.
+
+## PHP-backendgrund
+
+Sprint 1A introducerar en teknisk PHP-grund utan affärsfunktioner:
+
+- `composer.json`: PSR-4-autoloading för namespace `App\`.
+- `app/Core/`: tomma grundklasser för framtida bootstrap, config, router, request, response, logger, error handler och PDO-hantering.
+- `config/`: endast exempelkonfigurationer.
+- `database/`: tomma kataloger för framtida migrations, seeders och schema.
+- `routes/`, `storage/` och `tests/`: tomma grundkataloger för kommande sprintar.
+
+Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1A.
 
 ## Planerad teknik senare
 
