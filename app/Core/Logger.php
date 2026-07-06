@@ -80,13 +80,16 @@ final class Logger
             $context === [] ? '' : $this->encodeContext($this->sanitize($context)),
         );
 
-        if (!is_dir($this->logDirectory) && !mkdir($this->logDirectory, 0775, true) && !is_dir($this->logDirectory)) {
+        if (!is_dir($this->logDirectory) && !@mkdir($this->logDirectory, 0775, true) && !is_dir($this->logDirectory)) {
             error_log($entry);
             return;
         }
 
         $path = $this->logDirectory . DIRECTORY_SEPARATOR . 'app-' . date('Y-m-d') . '.log';
-        file_put_contents($path, $entry . PHP_EOL, FILE_APPEND | LOCK_EX);
+
+        if (@file_put_contents($path, $entry . PHP_EOL, FILE_APPEND | LOCK_EX) === false) {
+            error_log($entry);
+        }
     }
 
     /**
