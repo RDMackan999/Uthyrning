@@ -6,7 +6,7 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API, inga databastabeller och inga migrationer.
+Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
 
 Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
@@ -54,7 +54,7 @@ Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas e
 
 ## Nuvarande backendstruktur
 
-Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund, men strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
+Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund och Sprint 1D med migrationsmotor, men strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
 
 ```text
 app/
@@ -100,6 +100,8 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 - `Database`: facade för framtida databasåtkomst via lazy `DatabaseConnection`.
 - `DatabaseConnection`: förbereder PDO-anslutning mot MySQL/MariaDB först när `pdo()` efterfrågas.
 - `QueryBuilder`: tom placeholder för framtida query builder och innehåller ingen SQL-logik i Sprint 1C.
+- `Migration`: representerar en godkänd SQL-fil från `database/migrations/`.
+- `MigrationRunner`: kör migrationsfiler i filnamnsordning, hoppar över redan körda filer och registrerar körningar i den interna tabellen `migrations`.
 
 ### Tekniska routes
 
@@ -114,16 +116,22 @@ Dessa routes är inte ett publikt API, innehåller ingen affärslogik och kräve
 
 ## Nuvarande databasrelaterade struktur
 
-Sprint 1C har en PHP-baserad databasgrund:
+Sprint 1C har en PHP-baserad databasgrund och Sprint 1D har en migrationsmotor:
 
 ```text
 app/Core/Database.php
 app/Core/DatabaseConnection.php
 app/Core/QueryBuilder.php
+app/Core/Migration.php
+app/Core/MigrationRunner.php
 config/database.example.php
+database/migrate.php
+database/migrations/0001_create_migrations_table.sql
 ```
 
 Databasanslutningen är lazy-loaded och skapas inte av Bootstrap eller health check. Backend ska kunna starta även om lokal databas saknas, så länge ingen databasfunktion används.
+
+Migrationsmotorn får endast läsa SQL-filer från `database/migrations/`, sorterar dem alfabetiskt och registrerar körda filer i `migrations`. Den första migrationen skapar endast den interna tabellen `migrations`; inga produkt- eller affärstabeller finns ännu.
 
 Följande filer kommer från Sites/vinext-startermallen och är inte en färdig produktdatabas:
 
@@ -195,7 +203,8 @@ Nuvarande ordning:
 3. `Config::get()` exponerar både `app.*` och `database.*` via dot notation.
 4. Riktiga config-filer får inte committas.
 5. PDO-anslutning sker först när `Database::pdo()` eller `Database::connection()->pdo()` används.
-6. Sessionsinställningar och databasberoende affärslogik implementeras i senare sprintar.
+6. Migrationer körs manuellt via `php database/migrate.php` och kräver lokal databasanslutning.
+7. Sessionsinställningar och databasberoende affärslogik implementeras i senare sprintar.
 
 ## API-struktur senare
 

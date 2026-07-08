@@ -8,7 +8,8 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 
 - Fungerande landningssida: ja.
 - Backend: Sprint 1B-kärna finns för config, routing, request/response, logging och felhantering.
-- Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`, men inga tabeller, migrationer eller SQL.
+- Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`.
+- Migrationsgrund: Sprint 1D lägger till en enkel migrationsmotor och intern `migrations`-tabell, men inga produkttabeller.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -71,6 +72,7 @@ npm run lint
 | `npm run start` | Startar byggd vinext-app. |
 | `npm run lint` | Kör ESLint mot källkoden. |
 | `npm run db:generate` | Genererar Drizzle-migrationer när schemaarbete införs senare. |
+| `php database/migrate.php` | Kör PHP-migrationer från `database/migrations/`. |
 
 ## Sites kontra public_html
 
@@ -82,20 +84,23 @@ När PHP/MySQL-grunden byggs vidare ska `docs/ARCHITECTURE.md` uppdateras med hu
 
 ## PHP-backendgrund
 
-Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lägger till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta.
+Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lade till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta. Sprint 1D lägger till en enkel migrationsmotor.
 
 - `composer.json`: PSR-4-autoloading för namespace `App\`.
-- `app/Core/`: bootstrap, config, router, request, response, logger, error handler och databasfacade.
+- `app/Core/`: bootstrap, config, router, request, response, logger, error handler, databasfacade och migrationsmotor.
 - `app/Core/DatabaseConnection.php`: förbereder PDO-anslutning först när den efterfrågas.
 - `app/Core/QueryBuilder.php`: tom placeholder för framtida query builder, utan SQL-logik.
+- `app/Core/Migration.php`: representerar en SQL-migrationsfil.
+- `app/Core/MigrationRunner.php`: kör migrationsfiler i filnamnsordning och registrerar körda migrationer.
 - `config/`: endast exempelkonfigurationer.
 - `config/database.example.php`: exempelvärden för lokal MySQL/MariaDB-anslutning.
 - `routes/web.php`: tekniska routes för `/` och `/health`.
-- `database/`: tomma kataloger för framtida migrations, seeders och schema.
+- `database/migrations/`: SQL-migrationer. Sprint 1D innehåller endast intern `migrations`-tabell.
+- `database/migrate.php`: CLI-script för att köra migrationer.
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 
-Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1C.
+Riktiga config-filer, produkttabeller, affärsmigrationer, login, API och integrationer ingår inte i Sprint 1D.
 
 ## Planerad teknik senare
 
