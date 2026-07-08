@@ -6,7 +6,7 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns en första PHP-backendgrund från Sprint 1A. Den innehåller endast mappar, Composer-autoloading, config-exempel och tomma Core-klasser. Det finns ingen affärslogik, ingen inloggning, inget API och inga databastabeller.
+Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Det finns ingen affärslogik, ingen inloggning, inget API och inga databastabeller.
 
 Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
@@ -54,7 +54,7 @@ Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas e
 
 ## Nuvarande backendstruktur
 
-Sprint 1A lägger till ett passivt PHP-skelett i samma repository. Strukturen är förberedande och ska inte köras som produktionsbackend ännu.
+Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
 
 ```text
 app/
@@ -84,7 +84,30 @@ storage/
 tests/
 ```
 
-`app/page.tsx`, `app/layout.tsx` och `app/globals.css` tillhör fortfarande frontend. PHP-koden under `app/Core/` använder namespace `App\Core` via Composer PSR-4-autoloading. Denna delning av rotkatalogen är tillfällig och ska följas upp innan routing, controllers eller publik PHP-entrypoint byggs.
+`app/page.tsx`, `app/layout.tsx` och `app/globals.css` tillhör fortfarande frontend. PHP-koden under `app/Core/` använder namespace `App\Core` via Composer PSR-4-autoloading. Denna delning av rotkatalogen är tillfällig och ska följas upp innan publik PHP-entrypoint byggs.
+
+### Core-lager
+
+Nuvarande Core-lager ansvarar endast för infrastruktur:
+
+- `Bootstrap`: laddar config, sätter timezone, registrerar felhantering, laddar routes och dispatchar request.
+- `Config`: läser `config/config.php` om den finns, annars `config/config.example.php`, och exponerar värden via dot notation.
+- `Router`: stödjer exakta `GET`- och `POST`-routes via `add()`, `get()`, `post()` och `dispatch()`.
+- `Request`: läser metod, URI, querystring och POST-data.
+- `Response`: skapar text-, HTML- och JSON-responser med statuskod och headers.
+- `Logger`: skriver filbaserade loggar till `storage/logs/` och maskerar kända känsliga nycklar.
+- `ErrorHandler`: registrerar PHP error/exception handlers och visar detaljer endast i development/debug.
+
+### Tekniska routes
+
+`routes/web.php` innehåller endast tekniska routes:
+
+```text
+GET /       Backend initialized
+GET /health JSON health check
+```
+
+Dessa routes är inte ett publikt API och innehåller ingen affärslogik.
 
 ## Nuvarande databasrelaterade struktur
 
@@ -153,10 +176,10 @@ När PHP-konfiguration införs ska `config.example.php` visa vilka inställninga
 
 Nuvarande ordning:
 
-1. `config/config.example.php` visar appinställningar som namn, miljö, debug, timezone och base URL.
-2. `config/database.example.php` visar framtida MySQL/MariaDB-inställningar för lokal utveckling.
+1. `config/config.php` används om den finns lokalt.
+2. `config/config.example.php` används som fallback och visar appinställningar som namn, miljö, debug, timezone, base URL och version.
 3. Riktiga config-filer får inte committas.
-4. Bootstrap, PDO-anslutning, felhantering, sessionsinställningar och loggning implementeras i senare sprintar.
+4. PDO-anslutning, sessionsinställningar och databasberoende logik implementeras i senare sprintar.
 
 ## API-struktur senare
 

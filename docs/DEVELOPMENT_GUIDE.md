@@ -39,13 +39,17 @@ Version 2 förbereds för flera uthyrare och marknadsplats.
 
 ## Backend
 
-Sprint 1A innehåller endast teknisk backend-grund:
+Sprint 1B innehåller den första fungerande PHP-kärnan:
 
 - PHP 8.x
 - Composer med PSR-4-autoloading för namespace `App\`
-- Tomma Core-klasser
-- Config-exempel
-- Tomma kataloger för kommande lager
+- Bootstrap
+- Config-laddning
+- Enkel Router
+- Request/Response
+- Filbaserad Logger
+- ErrorHandler
+- Tekniska routes för `/` och `/health`
 
 Ingen login, inga användare, inga roller, inga bokningar, inga objekt, inget API och inga integrationer är implementerade.
 
@@ -61,7 +65,7 @@ Databasnamn:
 uthyrning_dev
 ```
 
-Databasen kan finnas lokalt, men Sprint 1A skapar inga tabeller, migrationer eller seeders.
+Databasen kan finnas lokalt, men Sprint 1B skapar inga tabeller, migrationer eller seeders.
 
 ---
 
@@ -207,9 +211,9 @@ npm run lint
 
 ---
 
-# Backend-grund
+# Backend-kärna
 
-Sprint 1A använder Composer för autoloading men installerar inga externa bibliotek.
+Sprint 1B använder Composer för autoloading men installerar inga externa bibliotek.
 
 Kontrollera Composer-konfiguration:
 
@@ -234,6 +238,15 @@ config/database.example.php
 
 Skapa inte och committa inte riktiga config-filer med hemligheter.
 
+Backend-kärnan laddas via `App\Core\Bootstrap`. När en publik PHP-entrypoint införs i en senare sprint ska den skapa bootstrap-instansen och skicka responsen:
+
+```php
+$response = App\Core\Bootstrap::create()->run();
+$response->send();
+```
+
+Sprint 1B skapar ingen ny publik entrypoint.
+
 ---
 
 # Databas
@@ -255,7 +268,7 @@ CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
 
-Denna databas är endast för lokal utveckling. Sprint 1A skapar inga tabeller.
+Denna databas är endast för lokal utveckling. Sprint 1B skapar inga tabeller.
 
 ---
 
@@ -362,7 +375,7 @@ worker/
 build/
 ```
 
-Sprint 1A backend-grund:
+Sprint 1B backend-kärna:
 
 ```text
 app/Core/
@@ -376,7 +389,7 @@ config/
 database/migrations/
 database/seeders/
 database/schema/
-routes/
+routes/web.php
 storage/cache/
 storage/logs/
 storage/sessions/
@@ -384,7 +397,7 @@ storage/temp/
 tests/
 ```
 
-`app/` delas just nu mellan Vinext-frontend och PHP-skelett. Frontendens befintliga filer ska inte ändras av backendarbete.
+`app/` delas just nu mellan Vinext-frontend och PHP-kärna. Frontendens befintliga filer ska inte ändras av backendarbete.
 
 ---
 
