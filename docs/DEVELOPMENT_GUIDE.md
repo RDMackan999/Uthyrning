@@ -39,7 +39,7 @@ Version 2 förbereds för flera uthyrare och marknadsplats.
 
 ## Backend
 
-Sprint 1B innehåller den första fungerande PHP-kärnan och Sprint 1C lägger till databasanslutningsgrund:
+Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till databasanslutningsgrund och Sprint 1D lägger till migrationsmotor:
 
 - PHP 8.x
 - Composer med PSR-4-autoloading för namespace `App\`
@@ -51,6 +51,7 @@ Sprint 1B innehåller den första fungerande PHP-kärnan och Sprint 1C lägger t
 - ErrorHandler
 - Lazy PDO-anslutning via `App\Core\Database` och `App\Core\DatabaseConnection`
 - Tom `QueryBuilder`-placeholder för framtida sprint
+- Migrationsmotor via `App\Core\MigrationRunner`
 - Tekniska routes för `/` och `/health`
 
 Ingen login, inga användare, inga roller, inga bokningar, inga objekt, inget API och inga integrationer är implementerade.
@@ -67,7 +68,7 @@ Databasnamn:
 uthyrning_dev
 ```
 
-Databasen kan finnas lokalt, men Sprint 1C skapar inga tabeller, migrationer eller seeders. Backend ska fortfarande kunna starta utan databasanslutning så länge ingen databasfunktion används.
+Databasen kan finnas lokalt. Sprint 1D kan skapa den interna tabellen `migrations` för att hålla reda på körda migrationsfiler, men skapar inga produkt- eller affärstabeller.
 
 ---
 
@@ -247,7 +248,7 @@ $response = App\Core\Bootstrap::create()->run();
 $response->send();
 ```
 
-Sprint 1C skapar ingen ny publik entrypoint.
+Sprint 1D skapar ingen ny publik entrypoint.
 
 ---
 
@@ -270,7 +271,7 @@ CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
 
-Denna databas är endast för lokal utveckling. Sprint 1C skapar inga tabeller.
+Denna databas är endast för lokal utveckling. Sprint 1D skapar endast migrationsmotorns interna tabell när migrationer körs.
 
 Databasinställningar läses av `Config` via:
 
@@ -296,6 +297,30 @@ database.charset
 ```
 
 PDO-anslutningen skapas först när `App\Core\Database::pdo()` eller `App\Core\Database::connection()->pdo()` används. Routes `/` och `/health` ska inte kräva fungerande databas.
+
+## Migrationer
+
+Migrationsfiler ligger i:
+
+```text
+database/migrations/
+```
+
+Kör migrationer från projektroten:
+
+```bash
+php database/migrate.php
+```
+
+Scriptet laddar config, använder `App\Core\MigrationRunner`, kör SQL-filer i filnamnsordning och registrerar körda filer i tabellen `migrations`.
+
+Sprint 1D innehåller endast:
+
+```text
+database/migrations/0001_create_migrations_table.sql
+```
+
+Denna migration skapar bara tabellen `migrations`. Produkt- och affärstabeller skapas i senare sprintar.
 
 ---
 
@@ -402,7 +427,7 @@ worker/
 build/
 ```
 
-Sprint 1C backend-kärna:
+Sprint 1D backend-kärna:
 
 ```text
 app/Core/
@@ -413,6 +438,7 @@ app/Repositories/
 app/Services/
 app/Helpers/
 config/
+database/migrate.php
 database/migrations/
 database/seeders/
 database/schema/
@@ -457,7 +483,7 @@ När PHP finns installerat ska nya PHP-filer syntaxkontrolleras:
 php -l path/to/file.php
 ```
 
-Databastester och migrationstester kommer senare när databasen implementeras.
+Databastester och migrationstester kräver lokal databas och ska köras först när miljön är konfigurerad.
 
 ---
 
