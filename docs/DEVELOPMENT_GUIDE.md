@@ -39,7 +39,7 @@ Version 2 förbereds för flera uthyrare och marknadsplats.
 
 ## Backend
 
-Sprint 1B innehåller den första fungerande PHP-kärnan:
+Sprint 1B innehåller den första fungerande PHP-kärnan och Sprint 1C lägger till databasanslutningsgrund:
 
 - PHP 8.x
 - Composer med PSR-4-autoloading för namespace `App\`
@@ -49,6 +49,8 @@ Sprint 1B innehåller den första fungerande PHP-kärnan:
 - Request/Response
 - Filbaserad Logger
 - ErrorHandler
+- Lazy PDO-anslutning via `App\Core\Database` och `App\Core\DatabaseConnection`
+- Tom `QueryBuilder`-placeholder för framtida sprint
 - Tekniska routes för `/` och `/health`
 
 Ingen login, inga användare, inga roller, inga bokningar, inga objekt, inget API och inga integrationer är implementerade.
@@ -65,7 +67,7 @@ Databasnamn:
 uthyrning_dev
 ```
 
-Databasen kan finnas lokalt, men Sprint 1B skapar inga tabeller, migrationer eller seeders.
+Databasen kan finnas lokalt, men Sprint 1C skapar inga tabeller, migrationer eller seeders. Backend ska fortfarande kunna starta utan databasanslutning så länge ingen databasfunktion används.
 
 ---
 
@@ -245,7 +247,7 @@ $response = App\Core\Bootstrap::create()->run();
 $response->send();
 ```
 
-Sprint 1B skapar ingen ny publik entrypoint.
+Sprint 1C skapar ingen ny publik entrypoint.
 
 ---
 
@@ -268,7 +270,32 @@ CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
 
-Denna databas är endast för lokal utveckling. Sprint 1B skapar inga tabeller.
+Denna databas är endast för lokal utveckling. Sprint 1C skapar inga tabeller.
+
+Databasinställningar läses av `Config` via:
+
+```text
+config/database.php
+```
+
+om filen finns lokalt, annars via:
+
+```text
+config/database.example.php
+```
+
+Riktig `config/database.php` ska aldrig committas. Exempelnycklarna är:
+
+```text
+database.host
+database.port
+database.database
+database.username
+database.password
+database.charset
+```
+
+PDO-anslutningen skapas först när `App\Core\Database::pdo()` eller `App\Core\Database::connection()->pdo()` används. Routes `/` och `/health` ska inte kräva fungerande databas.
 
 ---
 
@@ -375,7 +402,7 @@ worker/
 build/
 ```
 
-Sprint 1B backend-kärna:
+Sprint 1C backend-kärna:
 
 ```text
 app/Core/

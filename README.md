@@ -8,7 +8,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 
 - Fungerande landningssida: ja.
 - Backend: Sprint 1B-kärna finns för config, routing, request/response, logging och felhantering.
-- Databas: inte byggd ännu.
+- Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`, men inga tabeller, migrationer eller SQL.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -78,21 +78,24 @@ Den långsiktiga plattformen ska byggas med PHP 8.x, MySQL/MariaDB och PDO. En k
 
 Just nu finns ingen aktiv `public_html/`-struktur i källan. Den fungerande landningssidan ligger i Sites-strukturen och ska inte flyttas innan en dokumenterad strategi finns.
 
-När PHP/MySQL-grunden byggs ska `docs/ARCHITECTURE.md` uppdateras med hur frontend, backend, API och hosting ska samexistera.
+När PHP/MySQL-grunden byggs vidare ska `docs/ARCHITECTURE.md` uppdateras med hur frontend, backend, API och hosting ska samexistera.
 
 ## PHP-backendgrund
 
-Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerar den första fungerande kärnan:
+Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lägger till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta.
 
 - `composer.json`: PSR-4-autoloading för namespace `App\`.
-- `app/Core/`: bootstrap, config, router, request, response, logger och error handler.
+- `app/Core/`: bootstrap, config, router, request, response, logger, error handler och databasfacade.
+- `app/Core/DatabaseConnection.php`: förbereder PDO-anslutning först när den efterfrågas.
+- `app/Core/QueryBuilder.php`: tom placeholder för framtida query builder, utan SQL-logik.
 - `config/`: endast exempelkonfigurationer.
+- `config/database.example.php`: exempelvärden för lokal MySQL/MariaDB-anslutning.
 - `routes/web.php`: tekniska routes för `/` och `/health`.
 - `database/`: tomma kataloger för framtida migrations, seeders och schema.
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 
-Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1B.
+Riktiga config-filer, databastabeller, migrationer, login, API och integrationer ingår inte i Sprint 1C.
 
 ## Planerad teknik senare
 
@@ -101,7 +104,7 @@ Riktiga config-filer, databastabeller, migrationer, login, API och integrationer
 - PDO för databasåtkomst
 - Inga stora PHP-ramverk i grunden
 - Ingen känslig information i repo
-- `config.example.php` när PHP-konfiguration införs, men aldrig riktig `config.php`
+- `config.example.php` och `database.example.php`, men aldrig riktiga config-filer med hemligheter
 
 ## Planerade framtida funktioner
 

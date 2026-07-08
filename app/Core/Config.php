@@ -15,21 +15,14 @@ final class Config
     private static array $items = [];
 
     /**
-     * Load application configuration from config.php or config.example.php.
+     * Load application and database configuration from local files or examples.
      */
     public static function load(string $basePath): void
     {
-        $configPath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'config.php';
-        $examplePath = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'config.example.php';
-        $path = is_file($configPath) ? $configPath : $examplePath;
-
-        if (!is_file($path)) {
-            self::$items = [];
-            return;
-        }
-
-        $config = require $path;
-        self::$items = is_array($config) ? $config : [];
+        self::$items = array_replace_recursive(
+            self::loadFile($basePath, 'config'),
+            self::loadFile($basePath, 'database'),
+        );
     }
 
     /**
@@ -58,5 +51,26 @@ final class Config
     public static function all(): array
     {
         return self::$items;
+    }
+
+    /**
+     * Load one config file, preferring the local file over the example file.
+     *
+     * @return array<string, mixed>
+     */
+    private static function loadFile(string $basePath, string $name): array
+    {
+        $configDirectory = rtrim($basePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config';
+        $configPath = $configDirectory . DIRECTORY_SEPARATOR . $name . '.php';
+        $examplePath = $configDirectory . DIRECTORY_SEPARATOR . $name . '.example.php';
+        $path = is_file($configPath) ? $configPath : $examplePath;
+
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $config = require $path;
+
+        return is_array($config) ? $config : [];
     }
 }
