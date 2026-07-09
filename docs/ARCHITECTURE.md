@@ -6,7 +6,7 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
+Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Sprint 1E lägger till gemensam grund för framtida modeller, repositories och collections. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
 
 Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
@@ -54,7 +54,7 @@ Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas e
 
 ## Nuvarande backendstruktur
 
-Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund och Sprint 1D med migrationsmotor, men strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
+Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund, Sprint 1D med migrationsmotor och Sprint 1E med modell-/repository-grund. Strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
 
 ```text
 app/
@@ -102,6 +102,12 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 - `QueryBuilder`: tom placeholder för framtida query builder och innehåller ingen SQL-logik i Sprint 1C.
 - `Migration`: representerar en godkänd SQL-fil från `database/migrations/`.
 - `MigrationRunner`: kör migrationsfiler i filnamnsordning, hoppar över redan körda filer och registrerar körningar i den interna tabellen `migrations`.
+- `BaseModel`: gemensam grund för framtida modeller med attribut, `fill()`, `toArray()`, `tableName()` och `primaryKey()`.
+- `BaseRepository`: gemensam grund för framtida repositories med förberedda CRUD-metoder som ännu inte kör SQL.
+- `Collection`: enkel itererbar collection med `count()` och `toArray()`.
+- `ModelException`: tydligt undantag för modellagrets ej implementerade metoder.
+
+`BaseModel` och `BaseRepository` är avsiktligt ofullständiga i Sprint 1E. Metoder som `save()`, `delete()`, `find()`, `findAll()`, `create()` och `update()` kastar `ModelException` tills en separat sprint specificerar faktisk databasåtkomst.
 
 ### Tekniska routes
 
@@ -124,6 +130,10 @@ app/Core/DatabaseConnection.php
 app/Core/QueryBuilder.php
 app/Core/Migration.php
 app/Core/MigrationRunner.php
+app/Core/BaseModel.php
+app/Core/BaseRepository.php
+app/Core/Collection.php
+app/Core/ModelException.php
 config/database.example.php
 database/migrate.php
 database/migrations/0001_create_migrations_table.sql
@@ -132,6 +142,8 @@ database/migrations/0001_create_migrations_table.sql
 Databasanslutningen är lazy-loaded och skapas inte av Bootstrap eller health check. Backend ska kunna starta även om lokal databas saknas, så länge ingen databasfunktion används.
 
 Migrationsmotorn får endast läsa SQL-filer från `database/migrations/`, sorterar dem alfabetiskt och registrerar körda filer i `migrations`. Den första migrationen skapar endast den interna tabellen `migrations`; inga produkt- eller affärstabeller finns ännu.
+
+Modell- och repository-grunden kör ingen SQL i Sprint 1E. Framtida konkreta modeller ska ärva `BaseModel`, definiera sin tabell via `tableName()` och använda repositories först när databasåtkomst har specificerats.
 
 Följande filer kommer från Sites/vinext-startermallen och är inte en färdig produktdatabas:
 
