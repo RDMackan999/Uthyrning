@@ -7,7 +7,7 @@ namespace App\Core;
 /**
  * Represents an HTTP response with status, headers and body content.
  */
-final class Response
+class Response
 {
     /**
      * @param array<string, string> $headers
