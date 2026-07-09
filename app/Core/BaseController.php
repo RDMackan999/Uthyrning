@@ -22,9 +22,7 @@ abstract class BaseController
      */
     protected function view(string $template, array $data = []): Response
     {
-        $renderer = $this->viewRenderer ?? new View();
-
-        return Response::html($renderer->render($template, $data));
+        return new ViewResponse($template, $data, 200, $this->viewRenderer);
     }
 
     /**
@@ -34,7 +32,7 @@ abstract class BaseController
      */
     protected function json(array $data, int $status = 200): Response
     {
-        return Response::json($data, $status);
+        return new JsonResponse($data, $status);
     }
 
     /**

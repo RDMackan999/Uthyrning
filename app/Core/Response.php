@@ -42,13 +42,7 @@ class Response
      */
     public static function json(array $data, int $statusCode = 200): self
     {
-        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        return new self(
-            $json === false ? '{}' : $json,
-            $statusCode,
-            ['Content-Type' => 'application/json; charset=utf-8'],
-        );
+        return new JsonResponse($data, $statusCode);
     }
 
     /**

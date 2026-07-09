@@ -44,19 +44,23 @@ final class Router
     }
 
     /**
-     * Dispatch a request to a matching route or return 404.
+     * Dispatch a request to a matching route.
      */
     public function dispatch(Request $request): Response
     {
-        $method = $request->method();
-        $path = $this->normalizePath($request->path());
-        $handler = $this->routes[$method][$path] ?? null;
+        try {
+            $method = $request->method();
+            $path = $this->normalizePath($request->path());
+            $handler = $this->routes[$method][$path] ?? null;
 
-        if (!$handler instanceof Closure) {
-            return Response::text('Not Found', 404);
+            if (!$handler instanceof Closure) {
+                throw new NotFoundException();
+            }
+
+            return $this->toResponse($handler($request));
+        } catch (HttpException $exception) {
+            return Response::text($exception->getMessage(), $exception->statusCode());
         }
-
-        return $this->toResponse($handler($request));
     }
 
     /**
@@ -69,7 +73,7 @@ final class Router
         }
 
         if (is_array($result)) {
-            return Response::json($result);
+            return new JsonResponse($result);
         }
 
         return Response::text((string) $result);
