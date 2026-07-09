@@ -6,7 +6,7 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Sprint 1E lägger till gemensam grund för framtida modeller, repositories och collections. Sprint 1F lägger till grund för controllers, PHP-views och redirect-responser. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
+Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Sprint 1E lägger till gemensam grund för framtida modeller, repositories och collections. Sprint 1F lägger till grund för controllers, PHP-views och redirect-responser. Sprint 1G lägger till specialiserade HTTP-responser och HTTP-undantag. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
 
 Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
@@ -54,7 +54,7 @@ Frontendens viktigaste fil är `app/page.tsx`. Den ska inte ersättas, flyttas e
 
 ## Nuvarande backendstruktur
 
-Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund, Sprint 1D med migrationsmotor, Sprint 1E med modell-/repository-grund och Sprint 1F med controller-/view-grund. Strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
+Sprint 1B implementerar ett litet PHP-kärnlager i samma repository. Sprint 1C utökar kärnan med databasanslutningsgrund, Sprint 1D med migrationsmotor, Sprint 1E med modell-/repository-grund, Sprint 1F med controller-/view-grund och Sprint 1G med HTTP-grund. Strukturen är fortfarande infrastruktur och ska inte betraktas som färdig produktionsbackend.
 
 ```text
 app/
@@ -100,7 +100,11 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 - `Router`: stödjer exakta `GET`- och `POST`-routes via `add()`, `get()`, `post()` och `dispatch()`.
 - `Request`: läser metod, URI, querystring och POST-data.
 - `Response`: skapar text-, HTML- och JSON-responser med statuskod och headers.
+- `JsonResponse`: specialiserad JSON-response med korrekt `Content-Type`.
+- `ViewResponse`: renderar PHP-views via `View` och returnerar HTML-response.
 - `RedirectResponse`: skapar redirect-responser med `Location`-header och tom body.
+- `HttpException`: grundexception för förväntade HTTP-fel med statuskod.
+- `NotFoundException`: 404-exception som används av routern när route saknas.
 - `BaseController`: basklass för framtida controllers med helpers för view, JSON och redirect.
 - `View`: renderar enkla PHP-views från `resources/views/` och begränsar template paths till den katalogen.
 - `Logger`: skriver filbaserade loggar till `storage/logs/` och maskerar kända känsliga nycklar.
@@ -127,6 +131,17 @@ resources/views/pages/backend-home.php
 ```
 
 `HomeController@index` renderar `pages/backend-home` via `BaseController::view()`. Detta är en teknisk testvy och innehåller ingen affärslogik.
+
+### HTTP-lager
+
+Sprint 1G gör HTTP-svaren tydligare utan att införa affärslogik:
+
+- JSON kan returneras via `JsonResponse`.
+- Serverrenderade PHP-vyer kan returneras via `ViewResponse`.
+- Förväntade HTTP-fel kan representeras med `HttpException`.
+- Saknade routes representeras med `NotFoundException`.
+
+Routern fångar endast `HttpException` och konverterar dessa till enkla HTTP-responser. Oväntade tekniska fel ska fortsatt hanteras av projektets felhantering.
 
 ### Tekniska routes
 
