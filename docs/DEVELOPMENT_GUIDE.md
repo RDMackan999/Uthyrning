@@ -39,7 +39,7 @@ Version 2 förbereds för flera uthyrare och marknadsplats.
 
 ## Backend
 
-Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till databasanslutningsgrund och Sprint 1D lägger till migrationsmotor:
+Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till databasanslutningsgrund, Sprint 1D lägger till migrationsmotor, Sprint 1E lägger till modell-/repository-grund och Sprint 1F lägger till controller-/view-grund:
 
 - PHP 8.x
 - Composer med PSR-4-autoloading för namespace `App\`
@@ -47,6 +47,9 @@ Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till
 - Config-laddning
 - Enkel Router
 - Request/Response
+- BaseController
+- Enkel PHP View-renderare
+- RedirectResponse
 - Filbaserad Logger
 - ErrorHandler
 - Lazy PDO-anslutning via `App\Core\Database` och `App\Core\DatabaseConnection`
@@ -248,7 +251,28 @@ $response = App\Core\Bootstrap::create()->run();
 $response->send();
 ```
 
-Sprint 1D skapar ingen ny publik entrypoint.
+Sprint 1F skapar fortfarande ingen ny publik entrypoint och ändrar inte frontendens landningssida.
+
+## Controller och views
+
+Sprint 1F introducerar en minimal struktur för framtida backend-vyer:
+
+```text
+app/Core/BaseController.php
+app/Core/View.php
+app/Core/RedirectResponse.php
+app/Controllers/HomeController.php
+resources/views/layouts/
+resources/views/pages/backend-home.php
+```
+
+`HomeController@index` renderar `resources/views/pages/backend-home.php` via `BaseController::view()`. Testvyn visar endast:
+
+```text
+Backend initialized
+```
+
+`GET /health` returnerar fortsatt JSON och kräver ingen databasanslutning.
 
 ---
 
@@ -427,7 +451,7 @@ worker/
 build/
 ```
 
-Sprint 1D backend-kärna:
+Sprint 1F backend-kärna:
 
 ```text
 app/Core/
@@ -442,6 +466,8 @@ database/migrate.php
 database/migrations/
 database/seeders/
 database/schema/
+resources/views/layouts/
+resources/views/pages/
 routes/web.php
 storage/cache/
 storage/logs/
@@ -480,7 +506,13 @@ Backend:
 När PHP finns installerat ska nya PHP-filer syntaxkontrolleras:
 
 ```bash
-php -l path/to/file.php
+php -l app/Core/BaseController.php
+php -l app/Core/View.php
+php -l app/Core/RedirectResponse.php
+php -l app/Controllers/HomeController.php
+php -l resources/views/pages/backend-home.php
+php -l routes/web.php
+php -l app/Core/Response.php
 ```
 
 Databastester och migrationstester kräver lokal databas och ska köras först när miljön är konfigurerad.
