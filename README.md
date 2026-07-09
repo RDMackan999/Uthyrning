@@ -11,6 +11,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`.
 - Migrationsgrund: Sprint 1D lägger till en enkel migrationsmotor och intern `migrations`-tabell, men inga produkttabeller.
 - Modellgrund: Sprint 1E lägger till BaseModel, BaseRepository, Collection och ModelException utan SQL eller affärslogik.
+- Controller-/view-grund: Sprint 1F lägger till BaseController, View, RedirectResponse och HomeController utan affärslogik.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -85,10 +86,15 @@ När PHP/MySQL-grunden byggs vidare ska `docs/ARCHITECTURE.md` uppdateras med hu
 
 ## PHP-backendgrund
 
-Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lade till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta. Sprint 1D lade till en enkel migrationsmotor. Sprint 1E lägger till grund för framtida modeller och repositories.
+Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lade till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta. Sprint 1D lade till en enkel migrationsmotor. Sprint 1E lade till grund för framtida modeller och repositories. Sprint 1F lägger till grund för framtida controllers, views och redirects.
 
 - `composer.json`: PSR-4-autoloading för namespace `App\`.
-- `app/Core/`: bootstrap, config, router, request, response, logger, error handler, databasfacade, migrationsmotor och modellgrund.
+- `app/Core/`: bootstrap, config, router, request, response, logger, error handler, databasfacade, migrationsmotor, modellgrund och controller/view-grund.
+- `app/Core/BaseController.php`: basklass för framtida controllers med helpers för view, JSON och redirect.
+- `app/Core/View.php`: enkel PHP-view-renderare för filer under `resources/views/`.
+- `app/Core/RedirectResponse.php`: redirect response med `Location`-header och tom body.
+- `app/Controllers/HomeController.php`: minimal backend-controller som renderar backendens testvy.
+- `resources/views/pages/backend-home.php`: enkel backend-testvy för `GET /`.
 - `app/Core/BaseModel.php`: grundstruktur för framtida modeller med `fill()` och `toArray()`.
 - `app/Core/BaseRepository.php`: grundstruktur för framtida repositories med metoder som ännu kastar tydliga undantag.
 - `app/Core/Collection.php`: enkel itererbar collection med `count()` och `toArray()`.
@@ -105,7 +111,7 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 
-Riktiga config-filer, produkttabeller, affärsmigrationer, login, API, SQL mot verksamhetstabeller och integrationer ingår inte i Sprint 1E.
+Riktiga config-filer, produkttabeller, affärsmigrationer, login, API, SQL mot verksamhetstabeller och integrationer ingår inte i Sprint 1F.
 
 ## Planerad teknik senare
 
