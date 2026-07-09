@@ -10,6 +10,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - Backend: Sprint 1B-kärna finns för config, routing, request/response, logging och felhantering.
 - Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`.
 - Migrationsgrund: Sprint 1D lägger till en enkel migrationsmotor och intern `migrations`-tabell, men inga produkttabeller.
+- Modellgrund: Sprint 1E lägger till BaseModel, BaseRepository, Collection och ModelException utan SQL eller affärslogik.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -84,10 +85,14 @@ När PHP/MySQL-grunden byggs vidare ska `docs/ARCHITECTURE.md` uppdateras med hu
 
 ## PHP-backendgrund
 
-Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lade till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta. Sprint 1D lägger till en enkel migrationsmotor.
+Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B implementerade den första fungerande kärnan. Sprint 1C lade till en lazy-loaded PDO-databasgrund utan att kräva databas för att backend ska kunna starta. Sprint 1D lade till en enkel migrationsmotor. Sprint 1E lägger till grund för framtida modeller och repositories.
 
 - `composer.json`: PSR-4-autoloading för namespace `App\`.
-- `app/Core/`: bootstrap, config, router, request, response, logger, error handler, databasfacade och migrationsmotor.
+- `app/Core/`: bootstrap, config, router, request, response, logger, error handler, databasfacade, migrationsmotor och modellgrund.
+- `app/Core/BaseModel.php`: grundstruktur för framtida modeller med `fill()` och `toArray()`.
+- `app/Core/BaseRepository.php`: grundstruktur för framtida repositories med metoder som ännu kastar tydliga undantag.
+- `app/Core/Collection.php`: enkel itererbar collection med `count()` och `toArray()`.
+- `app/Core/ModelException.php`: exception-klass för modellagret.
 - `app/Core/DatabaseConnection.php`: förbereder PDO-anslutning först när den efterfrågas.
 - `app/Core/QueryBuilder.php`: tom placeholder för framtida query builder, utan SQL-logik.
 - `app/Core/Migration.php`: representerar en SQL-migrationsfil.
@@ -100,7 +105,7 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 
-Riktiga config-filer, produkttabeller, affärsmigrationer, login, API och integrationer ingår inte i Sprint 1D.
+Riktiga config-filer, produkttabeller, affärsmigrationer, login, API, SQL mot verksamhetstabeller och integrationer ingår inte i Sprint 1E.
 
 ## Planerad teknik senare
 
