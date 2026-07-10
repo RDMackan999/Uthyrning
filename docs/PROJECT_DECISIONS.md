@@ -386,6 +386,58 @@ Projektets historik ska kunna förstås flera år senare.
 
 ---
 
+# Beslut 0011
+
+## Datum
+
+2026-07-10
+
+## Status
+
+Accepted
+
+## Titel
+
+Autentiseringsmodell för Version 1
+
+## Beslut
+
+Version 1 använder e-post och lösenord som första autentiseringsmodell.
+
+E-postverifiering krävs innan skyddade ytor får användas.
+
+Remember me ingår inte i Version 1.
+
+Normal sessionstid är 8 timmar med 30 minuters inaktivitetstimeout.
+
+Efter 5 misslyckade försök för samma konto eller e-post inom 15 minuter spärras inloggning temporärt i 15 minuter.
+
+Efter 20 misslyckade försök från samma IP inom 15 minuter spärras IP temporärt i 30 minuter.
+
+Reset-token och e-postverifieringstoken ska lagras hashade.
+
+Flera samtidiga sessioner tillåts, men aktiva sessioner ska kunna återkallas när sessionsmodellen implementeras.
+
+BankID förbereds som framtida extern identitet men byggs inte i Version 1.
+
+## Motivering
+
+E-post och lösenord är den enklaste säkra startpunkten för en administrerad MVP.
+
+E-postverifiering minskar risken för felaktiga konton och lösenordsreset till fel mottagare.
+
+Remember me kräver persistent token-rotation och återkallelse och bör därför vänta tills sessionsmodellen är stabil.
+
+BankID kräver separat juridisk, teknisk och säkerhetsmässig specifikation.
+
+## Konsekvens
+
+Kommande autentiseringssprintar ska designa och implementera sessioner, reset-token, e-postverifiering, login attempts och audit-loggning enligt `docs/SECURITY.md`, `docs/DATABASE_DESIGN.md` och `docs/BUSINESS_RULES.md`.
+
+Ingen autentiseringskod, migration eller BankID-integration ingår i detta beslut.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

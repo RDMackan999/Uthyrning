@@ -339,6 +339,64 @@ Version 2 inför:
 
 ---
 
+# Autentisering
+
+Version 1 använder e-post och lösenord för konton som ska logga in i skyddade ytor.
+
+Affärsregler:
+
+- Ett konto måste ha verifierad e-post innan skyddade ytor får användas.
+- Kunder ska fortfarande kunna skicka bokningsförfrågan utan konto om det flödet väljs för Version 1.
+- Administratörer ska logga in med e-post och lösenord.
+- Inaktiva, spärrade eller arkiverade konton får inte logga in.
+- Utloggning ska avsluta den aktuella sessionen.
+- En användare får vara inloggad på flera enheter.
+- Aktiva sessioner ska kunna återkallas av systemet när sessionshantering byggs.
+- Remember me ingår inte i Version 1.
+
+Sessionsregler:
+
+- Normal session gäller högst 8 timmar.
+- Inaktivitet i 30 minuter ska kräva ny inloggning.
+- Session-id ska bytas efter lyckad inloggning.
+- Session-id ska bytas efter större behörighetsändring.
+
+Misslyckade inloggningar:
+
+- 5 misslyckade försök för samma konto eller e-post inom 15 minuter ger temporär spärr i 15 minuter.
+- 20 misslyckade försök från samma IP inom 15 minuter ger temporär IP-spärr i 30 minuter.
+- Felmeddelanden ska vara generiska och får inte avslöja om e-postadressen finns.
+
+Lösenord:
+
+- Lösenord ska vara minst 12 tecken.
+- Lösenfraser ska vara tillåtna.
+- Vanliga eller kända läckta lösenord ska stoppas när kontroll finns tillgänglig.
+- Lösenordsbyte för inloggad användare kräver aktuellt lösenord.
+- Glömt lösenord ska använda engångstoken med kort giltighetstid.
+- Reset-token ska lagras hashad och aldrig visas igen efter skapande.
+
+Audit:
+
+Följande händelser ska loggas:
+
+- lyckad inloggning
+- misslyckad inloggning
+- utloggning
+- temporär spärr
+- lösenordsbyte
+- lösenordsreset begärd
+- lösenordsreset slutförd
+- e-postverifiering
+- återkallad session
+- försök att logga in på spärrat eller inaktivt konto
+
+BankID:
+
+BankID är en framtida funktion. Version 1 får inte kräva BankID för att fungera.
+
+---
+
 # Version 2
 
 Version 2 kan införa:
