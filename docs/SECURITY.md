@@ -51,6 +51,79 @@ Reset-tokens ska vara slumpmässiga, tidsbegränsade och engångsanvända.
 
 ---
 
+## Sprint 2C - autentiseringsdesign
+
+Version 1 ska använda e-post och lösenord för administratörer och framtida kontoanvändare. BankID ska förberedas som framtida extern identitet men inte påverka första implementationen.
+
+Rekommenderad modell:
+
+- E-post normaliseras innan uppslag och jämförelse.
+- Lösenord lagras endast med `password_hash()`.
+- Inloggning ska använda generiska felmeddelanden för att undvika kontouppräkning.
+- Lyckad inloggning ska regenerera session-id.
+- Utloggning ska radera server-session och klient-cookie.
+- Sessionsdata ska lagras serverside och bara innehålla minsta möjliga användaridentifierare och metadata.
+- Aktiva sessioner ska kunna återkallas när sessionstabeller implementeras.
+- Flera samtidiga enheter tillåts i Version 1, men ska kunna granskas och återkallas.
+- Inaktiva, spärrade eller soft delete:ade konton får inte logga in.
+
+Beslut för Version 1:
+
+- E-postverifiering krävs innan ett konto får använda skyddade ytor.
+- Remember me ingår inte i Version 1.
+- Normal absolut sessionstid är 8 timmar.
+- Maximal inaktivitetstid är 30 minuter.
+- Efter 5 misslyckade försök för samma konto eller e-post inom 15 minuter spärras inloggning temporärt i 15 minuter.
+- Efter 20 misslyckade försök från samma IP inom 15 minuter spärras IP temporärt i 30 minuter.
+- Lösenordsreset-token ska alltid lagras hashad.
+- Reset-token ska vara engångsanvänd, ha kort giltighetstid och bli ogiltig efter lösenordsbyte.
+- Aktiva sessioner ska kunna återkallas när sessionsmodellen byggs.
+- En användare får vara inloggad på flera enheter, men varje session ska spåras separat.
+
+Lösenordspolicy:
+
+- Minst 12 tecken.
+- Max 128 tecken.
+- Tillåt lösenfraser.
+- Kräv inte artificiella teckenregler som försämrar användbarhet.
+- Stoppa vanliga eller tidigare läckta lösenord när sådan kontroll finns tillgänglig.
+- Lösenordsbyte ska kräva aktuellt lösenord för inloggad användare.
+- Administrativt lösenordsbyte ska ske genom resetflöde, inte genom att administratören ser eller skriver användarens lösenord.
+
+Alternativ som valdes bort:
+
+1. Kort session, till exempel 1 timme.
+   Fördel: mindre risk vid kapad session. Nackdel: sämre arbetsflöde för administratörer som arbetar löpande under dagen.
+2. Lång session, till exempel 30 dagar.
+   Fördel: bekvämt. Nackdel: för hög risk utan färdig remember me-modell och sessionsgranskning.
+3. Remember me i Version 1.
+   Fördel: bekvämt för återkommande användare. Nackdel: kräver separat persistent token-modell, rotation och återkallelse. Skjuts upp.
+
+Autentiseringshändelser som ska audit-loggas:
+
+- lyckad inloggning
+- misslyckad inloggning
+- utloggning
+- temporär kontospärr
+- temporär IP-spärr
+- lösenordsbyte
+- begärd lösenordsreset
+- använd reset-token
+- ogiltig eller utgången reset-token
+- e-postverifiering
+- återkallad session
+- spärrat eller inaktiverat konto
+
+Loggar får aldrig innehålla lösenord, reset-token, sessions-id, BankID-identifierare eller andra hemligheter i klartext.
+
+BankID senare:
+
+- BankID ska kopplas via en separat extern identitetsmodell.
+- Personnummer ska inte användas som primärnyckel.
+- BankID får inte implementeras innan juridiska krav, dataflöde, lagring, loggning och leverantör är dokumenterade.
+
+---
+
 # Auktorisering
 
 Behörigheter ska kontrolleras på serversidan.

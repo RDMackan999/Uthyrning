@@ -406,6 +406,70 @@ Framtida integrationer:
 - Personnummer ska inte lagras okrypterat om det inte finns dokumenterat juridiskt behov.
 - Externa identifierare ska ha unikhet per provider och aldrig loggas i klartext om de är känsliga.
 
+#### Sprint 2C: Authentication Design
+
+Autentisering ska byggas som ett separat lager ovanpå identitetsdomänen. `users` är kontoidentiteten, men sessioner, reset-token, e-postverifiering och autentiseringsloggning ska modelleras i separata tabeller när de implementeras.
+
+Rekommenderade framtida tabeller:
+
+- `user_sessions`: aktiva och historiska sessioner som kan återkallas.
+- `password_reset_tokens`: hashade engångstokens för lösenordsreset.
+- `email_verification_tokens`: hashade engångstokens för e-postverifiering.
+- `login_attempts`: kortlivad teknisk spärr- och rate-limit-data.
+- `authentication_events` eller `audit_events`: varaktig audit för autentiseringshändelser.
+
+Syfte:
+
+- Hålla lösenordsinloggning, sessionslivscykel och tokenflöden separerade från användarens grundidentitet.
+- Kunna återkalla sessioner utan att ändra användarraden.
+- Kunna spåra säkerhetshändelser utan att logga hemligheter.
+- Förbereda framtida BankID genom extern identitetskoppling i egen modell.
+
+Relationer:
+
+- `user_sessions.user_id` refererar `users.id`.
+- `password_reset_tokens.user_id` refererar `users.id`.
+- `email_verification_tokens.user_id` refererar `users.id`.
+- `login_attempts` bör kunna kopplas till `users.id` när användaren är känd, men även stödja försök där bara e-post eller IP finns.
+- Varaktiga autentiseringshändelser kopplas till `users.id` när möjligt och till `organizations.id` när händelsen har organisationsscope.
+
+Viktiga databasprinciper:
+
+- Reset-token och e-postverifieringstoken lagras endast hashade.
+- Sessions-id lagras inte i klartext; lagra hash eller serverintern identifierare.
+- IP-adress och user agent kan behövas för säkerhet men ska hanteras enligt GDPR och dataminimering.
+- `expires_at`, `used_at` och `revoked_at` behövs för token- och sessionslivscykel.
+- `created_at` och `updated_at` används konsekvent.
+- `deleted_at` är normalt inte rätt för kortlivade tokens; använd giltighet, användning och återkallelse.
+- Login attempts bör kunna rensas enligt retention-regler.
+
+Rekommenderade index när tabellerna byggs:
+
+- `user_sessions(user_id, revoked_at, expires_at)`
+- `password_reset_tokens(token_hash)`
+- `password_reset_tokens(user_id, expires_at)`
+- `email_verification_tokens(token_hash)`
+- `email_verification_tokens(user_id, expires_at)`
+- `login_attempts(email_normalized, attempted_at)`
+- `login_attempts(ip_address, attempted_at)`
+- `authentication_events(user_id, created_at)`
+
+Version 1-beslut:
+
+- E-postverifiering krävs innan skyddade ytor får användas.
+- Remember me byggs inte i Version 1.
+- Normal absolut sessionstid är 8 timmar.
+- Inaktivitetstid är 30 minuter.
+- 5 misslyckade försök per konto/e-post inom 15 minuter ger 15 minuters temporär spärr.
+- 20 misslyckade försök per IP inom 15 minuter ger 30 minuters temporär IP-spärr.
+- Flera samtidiga sessioner tillåts men ska kunna återkallas.
+
+Framtida BankID:
+
+- BankID ska använda `user_external_identities` eller motsvarande separat tabell när integrationskraven är beslutade.
+- BankID ska inte kräva ändring av `users.id`.
+- Personnummer får inte bli primär teknisk identitet.
+
 Risker:
 
 - Duplicerad persondata mellan `users`, `user_profiles`, `customers`, `customer_contacts` och `company_contacts`.
