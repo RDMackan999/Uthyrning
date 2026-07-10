@@ -252,6 +252,7 @@ Tabeller:
 
 - `users`
 - `user_profiles`
+- `user_external_identities`
 - `roles`
 - `permissions`
 - `role_permissions`
@@ -282,6 +283,138 @@ Framtida utbyggnad:
 
 Senior rekommendation: separera `users` från `customers`. En kund kan boka utan att först ha ett fullständigt användarkonto, men kan senare kopplas till en användare.
 
+#### Sprint 2: Identity Domain Design
+
+Identitetsdomänen ska skilja mellan säkerhetsidentitet, organisationsmedlemskap och affärsrelation. Det är den viktigaste gränsdragningen innan användare, roller och kunder byggs.
+
+Domänobjekt:
+
+- `User`: den tekniska och säkerhetsmässiga identiteten som kan logga in eller senare kopplas till BankID.
+- `Role`: en namngiven behörighetsprofil, till exempel systemadmin, uthyrare, intern personal eller kundportal-användare.
+- `Permission`: en finmaskig rättighet som kod och gränssnitt kan kontrollera, till exempel `items.manage` eller `bookings.approve`.
+- `UserRole`: kopplingen mellan användare, roll och scope.
+- `Company`: en juridisk eller kommersiell aktör som kan hyra, faktureras eller senare kopplas till Fortnox.
+- `Customer`: kundrelationen i uthyrningssystemet. En kund kan vara privatperson eller företag och behöver inte alltid vara en inloggad användare.
+
+Föreslagna tabeller för identitet:
+
+- `users`: kärnidentitet, inloggningsstatus och tekniska säkerhetsfält.
+- `user_profiles`: icke-kritiska personprofilfält som namn och telefon.
+- `user_external_identities`: framtida koppling till BankID eller annan identitetsleverantör. Tabellen ska inte byggas förrän integrationskrav finns.
+- `roles`: roller på systemnivå eller organisationsnivå.
+- `permissions`: kodstyrda rättigheter.
+- `role_permissions`: many-to-many mellan roller och rättigheter.
+- `user_roles`: rolltilldelningar till användare, med globalt eller organisationsbundet scope.
+- `organization_users`: medlemskap mellan användare och uthyrare/organisation.
+
+Föreslagna tabeller för kund och företag:
+
+- `customers`: affärskund inom en uthyrande organisation.
+- `companies`: juridisk företagsinformation för företagskunder och framtida Fortnox-koppling.
+- `company_users`: framtida many-to-many mellan användare och företag.
+- `customer_users`: framtida many-to-many mellan användare och kundrelationer.
+- `customer_contacts`: kontaktpersoner och kontaktdata för kundärenden.
+- `company_contacts`: kontaktpersoner hos företag.
+- `customer_addresses`: adresser för kund, leverans och faktura.
+- `customer_notes`: interna noteringar, med tydliga GDPR-regler.
+
+Relationer:
+
+- `users` har en till noll/ett `user_profiles`.
+- `users` kan ha flera `user_external_identities` i framtiden, men en extern identitet får bara kopplas till en aktiv användare.
+- `users` kopplas till `organizations` via `organization_users`.
+- `users` får roller via `user_roles`.
+- `roles` får rättigheter via `role_permissions`.
+- `user_roles` bör kunna ha `organization_id` som nullable scope: `NULL` för systemroller och värde för organisationsroller.
+- `customers` tillhör alltid en `organization`.
+- `customers` kan representera en privatperson eller ett företag.
+- `customers` kan kopplas till `companies` när kunden är ett företag.
+- `customers` kan kopplas till `users` via `customer_users` när kundportal eller inloggat kundkonto införs.
+- `companies` kan kopplas till flera `users` via `company_users`, eftersom en användare kan agera för flera företag och ett företag kan ha flera användare.
+
+Rekommenderade foreign keys:
+
+- `user_profiles.user_id` -> `users.id`
+- `user_external_identities.user_id` -> `users.id`
+- `organization_users.user_id` -> `users.id`
+- `organization_users.organization_id` -> `organizations.id`
+- `roles.organization_id` -> `organizations.id` när rollen är organisationsspecifik, annars `NULL`
+- `role_permissions.role_id` -> `roles.id`
+- `role_permissions.permission_id` -> `permissions.id`
+- `user_roles.user_id` -> `users.id`
+- `user_roles.role_id` -> `roles.id`
+- `user_roles.organization_id` -> `organizations.id` när tilldelningen är organisationsspecifik
+- `customers.organization_id` -> `organizations.id`
+- `customers.company_id` -> `companies.id` när kunden är företag
+- `company_users.company_id` -> `companies.id`
+- `company_users.user_id` -> `users.id`
+- `customer_users.customer_id` -> `customers.id`
+- `customer_users.user_id` -> `users.id`
+
+Rekommenderade index:
+
+- Unikt index för normaliserad e-post i `users`, om e-post används som lokal inloggningsidentifierare.
+- Unikt index på `user_external_identities(provider, provider_subject)` när BankID eller annan extern identitet införs.
+- Index på `organization_users(organization_id, user_id)`.
+- Index på `user_roles(user_id, organization_id)`.
+- Unikt index på `roles(organization_id, key)` eller motsvarande rollnyckel.
+- Unikt index på `permissions(key)`.
+- Index på `customers(organization_id, company_id)`.
+- Index på `companies(organization_number)` om organisationsnummer lagras.
+- Index på `company_users(company_id, user_id)` och `customer_users(customer_id, user_id)`.
+
+Obligatoriska fält när tabellerna senare implementeras:
+
+- `users`: status, normaliserad e-post eller annan primär identifierare, `password_hash` när lokal lösenordsinloggning används, `created_at`, `updated_at`, och `deleted_at` för soft delete.
+- `user_profiles`: `user_id` och minst visningsnamn eller separerade namnfält när personprofil behövs.
+- `roles`: stabil rollnyckel, läsbart namn, scope-nivå och aktiv/inaktiv status.
+- `permissions`: stabil rättighetsnyckel, namn och beskrivning.
+- `user_roles`: `user_id`, `role_id`, scope och tidsstämplar.
+- `customers`: `organization_id`, kundtyp, status och kontaktväg eller koppling till kontakt/person/företag.
+- `companies`: namn, organisationsnummer när det är känt, status och tidsstämplar.
+
+Rollmodell: alternativ och rekommendation:
+
+1. Globala roller utan organisationsscope.
+   Fördel: enkelt i Version 1. Nackdel: svårt att införa marknadsplats och externa uthyrare utan ombyggnad.
+2. Roller per organisation utan systemroller.
+   Fördel: bra tenant-isolering. Nackdel: plattformsadmin och systemprocesser blir svårare att modellera.
+3. Hybrid med systemroller och organisationsroller.
+   Fördel: stödjer Version 1, framtida marknadsplats och plattformsadministration. Nackdel: kräver tydliga regler för scope.
+
+Rekommendation: använd hybridmodellen. `roles.organization_id` och `user_roles.organization_id` kan vara `NULL` för systemroller och satta för organisationsroller. Kod ska alltid kontrollera rättighet i rätt scope.
+
+Användare och företag:
+
+- En användare bör kunna tillhöra flera företag i framtiden.
+- Version 1 behöver inte bygga företagsanvändare, men datamodellen ska inte hindra det.
+- `company_users` bör användas när en inloggad person får agera för ett företag.
+- `customer_users` bör användas när en inloggad person får agera för en specifik kundrelation hos en uthyrare.
+
+Framtida marknadsplats:
+
+- `organizations` ska fortsätta vara tenant-/uthyrarscope.
+- `users` ska vara globala identiteter som kan ha roller i flera organisationer.
+- `customers` ska vara kundrelationer per organisation, inte globala inloggningskonton.
+- Externa uthyrare kan få egna `organizations`, egna roller och egna `organization_users`.
+- Plattformsadmin ska kunna vara systemroll utan att tillhöra varje organisation.
+
+Framtida integrationer:
+
+- BankID bör kopplas via `user_external_identities`, inte genom att personnummer blir primär identitet.
+- Fortnox-koppling bör ligga på `companies` och/eller `customers` via integrationsspecifika referenser, inte som hårdkodad affärslogik i `users`.
+- Personnummer ska inte lagras okrypterat om det inte finns dokumenterat juridiskt behov.
+- Externa identifierare ska ha unikhet per provider och aldrig loggas i klartext om de är känsliga.
+
+Risker:
+
+- Duplicerad persondata mellan `users`, `user_profiles`, `customers`, `customer_contacts` och `company_contacts`.
+- För grova roller kan leda till för mycket behörighet.
+- För finmaskiga behörigheter kan göra administrationen svår.
+- Om e-post görs globalt unik kan samma person inte ha separata identiteter per tenant; om e-post inte är globalt unik blir inloggning och återställning svårare.
+- Om kund och användare slås ihop för tidigt blir bokningsförfrågningar utan konto svåra att stödja.
+- Om företag bara modelleras som textfält på kund blir Fortnox, historik och flera kontaktpersoner svårare senare.
+
 ### Kunder och företag
 
 Tabeller:
@@ -289,7 +422,9 @@ Tabeller:
 - `customers`
 - `customer_contacts`
 - `companies`
+- `company_users`
 - `company_contacts`
+- `customer_users`
 - `customer_addresses`
 - `customer_notes`
 
@@ -668,6 +803,7 @@ Användare:
 
 - `users`
 - `user_profiles`
+- `user_external_identities`
 - `roles`
 - `permissions`
 - `role_permissions`
@@ -681,7 +817,9 @@ Kunder och företag:
 - `customers`
 - `customer_contacts`
 - `companies`
+- `company_users`
 - `company_contacts`
+- `customer_users`
 - `customer_addresses`
 - `customer_notes`
 
@@ -771,6 +909,7 @@ Organizations
  |                         +--- UserRoles --- Roles --- RolePermissions --- Permissions
  |                         |
  |                         +--- UserProfiles
+ |                         +--- UserExternalIdentities
  |
  +--- RentalItems --- ItemCategories
  |        |
@@ -785,8 +924,11 @@ Organizations
  +--- Customers
  |        |
  |        +--- CustomerContacts
+ |        +--- CustomerUsers --- Users
  |        +--- CustomerAddresses
  |        +--- Companies --- CompanyContacts
+ |                      |
+ |                      +--- CompanyUsers --- Users
  |
  +--- Bookings --- BookingItems --- RentalItems
  |        |
@@ -831,6 +973,14 @@ Kalender och datumintervall är riskfyllda. Hämtning, återlämning, heldag, ha
 ### Kunddata och GDPR
 
 Kunder, användare och kontakter kan leda till duplicerad persondata. Det behövs tydliga regler för anonymisering, retention och ansvar.
+
+### Identitet och rollscope
+
+Om roller inte har tydligt scope kan en användare få för bred behörighet mellan organisationer. Systemroller, organisationsroller och kundportalroller måste skiljas åt innan första användarrelaterade migrationen skrivs.
+
+### Externa identiteter
+
+BankID och andra externa identiteter får inte bli hårdkodade primärnycklar. Det behövs beslut om vilka externa identifierare som får lagras, hur de skyddas och hur de kopplas till användare.
 
 ### Dokumentrelationer
 
@@ -881,6 +1031,11 @@ Det är lockande att bygga en extremt flexibel modell för framtida AI, IoT, API
 - Ska företag och privatpersoner hanteras i samma kundflöde?
 - Vilka roller behövs i Version 1?
 - Vilka behörigheter behöver vara finmaskiga från start?
+- Ska `users.password_hash` vara obligatoriskt, eller ska externa identiteter kunna skapa användare utan lokalt lösenord?
+- Ska rolltilldelningar ligga direkt i `user_roles` med `organization_id`, eller via `organization_users`?
+- Ska en användare kunna agera för flera företag redan i Version 1, eller endast förberedas via modellen?
+- Ska privatperson som kund kopplas direkt till `users`, eller via `customer_users` när kundkonto införs?
+- Vilka identitetsrelaterade händelser måste audit-loggas från första implementationen?
 
 ### Objekt
 
