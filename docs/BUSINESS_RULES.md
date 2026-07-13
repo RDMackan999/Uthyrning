@@ -42,13 +42,48 @@ Exempel:
 Varje objekt har:
 
 - ett namn
-- en kategori
+- en primär kategori
 - ett pris
 - ett statusläge
 - bilder
 - dokument
 - servicehistorik
 - bokningshistorik
+
+---
+
+# Kategorier
+
+Version 1 ska använda en enkel kategorimodell i användargränssnittet.
+
+Standardkategorier:
+
+- Verktyg
+- Maskiner
+- Släp
+- Trädgård
+- Bygg
+- Övrigt
+
+Affärsregler:
+
+- Varje publicerat objekt ska ha en primär kategori.
+- Kategorier ska kunna användas i publik objektlista och som filter.
+- Kategorier ska kunna läggas till i admin när kategoriadministration byggs.
+- Version 1 visar kategorier som en enkel nivå.
+- Underkategorier får förberedas i datamodellen men ska inte krävas i Version 1.
+- En kategori kan vara aktiv, inaktiv eller arkiverad.
+- Endast aktiva kategorier får väljas för nya objekt.
+- Inaktiva kategorier ska döljas i publik filtrering men behållas på befintliga objekt.
+- Arkiverade kategorier ska bevaras för historik och ska inte hårdraderas när objekt använder dem.
+- Ett objekt ska bara kräva en primär kategori i Version 1.
+- Flera kategorier per objekt kan aktiveras senare om filtrering, SEO eller marknadsplats kräver det.
+
+Framtida marknadsplats:
+
+- Globala kategorier ska kunna användas av alla uthyrare.
+- Organisationsspecifika kategorier ska kunna stödja nischade objekt utan att förstöra den gemensamma kategoristrukturen.
+- SEO-fält ska kunna förberedas men SEO-implementation byggs i en senare sprint.
 
 ---
 

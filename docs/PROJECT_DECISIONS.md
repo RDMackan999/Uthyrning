@@ -438,6 +438,74 @@ Ingen autentiseringskod, migration eller BankID-integration ingår i detta beslu
 
 ---
 
+# Beslut 0012
+
+## Datum
+
+2026-07-13
+
+## Status
+
+Accepted
+
+## Titel
+
+Kategorimodell för uthyrningsobjekt
+
+## Beslut
+
+Kategorier för uthyrningsobjekt ska modelleras som en hybrid mellan globala plattformskategorier och organisationsspecifika kategorier.
+
+Globala kategorier används för gemensam publik filtrering, startsida och framtida SEO.
+
+Organisationsspecifika kategorier ska kunna läggas till i admin när kategoriadministration byggs.
+
+Version 1 ska visa kategorier som en enkel nivå.
+
+Datamodellen får förberedas med `parent_id` för framtida underkategorier, men underkategorier ska inte aktiveras i Version 1.
+
+Varje objekt ska ha exakt en primär kategori i Version 1.
+
+Datamodellen ska förbereda flera kategorier per objekt via relationstabell, men sekundära kategorier ska inte aktiveras förrän ett tydligt behov finns.
+
+`slug` ska vara unik inom sitt scope.
+
+Global kategori-slug ska vara unik bland globala kategorier.
+
+Organisationsspecifik kategori-slug ska vara unik inom samma organisation.
+
+Kategorier kan vara aktiva, inaktiva eller arkiverade.
+
+Inaktiva kategorier ska inte kunna väljas för nya objekt och ska döljas i publika filter, men befintliga objekt ska behålla sin historik.
+
+SEO-fält kan förberedas i datamodellen, men SEO-routes och redirect-hantering byggs senare.
+
+Separat `category_images` ska inte skapas i Version 1.
+
+En enkel `icon_key` kan användas för UI och framtida kategori-bild bör kopplas via mediabiblioteket.
+
+## Motivering
+
+En hybridmodell håller Version 1 enkel men gör att plattformen kan växa till marknadsplats utan att kategoristrukturen måste göras om.
+
+En primär kategori per objekt ger enkel administration och tydlig publik filtrering.
+
+Relationstabell förbereder framtida flera kategorier per objekt utan att låsa databasen till en för snäv modell.
+
+Att vänta med underkategorier, kategoriunika attribut och separat bildhantering minskar komplexitet i MVP.
+
+## Konsekvens
+
+Kommande kategorimigrationer ska följa `docs/DATABASE_DESIGN.md`.
+
+Adminflödet ska börja med enkel kategoriadministration.
+
+Frontend och publik objektlista ska bara behöva hantera en primär kategori i Version 1.
+
+Marknadsplats, SEO, underkategorier, översättningar och avancerade filter kräver separata sprintar.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
