@@ -20,7 +20,8 @@ final class AuthenticationService
         private readonly UserRepository $userRepository = new UserRepository(),
         private readonly PasswordService $passwordService = new PasswordService(),
         private readonly LoginThrottleService $loginThrottleService = new LoginThrottleService(),
-        private readonly SessionService $sessionService = new SessionService()
+        private readonly SessionService $sessionService = new SessionService(),
+        private readonly AuditService $auditService = new AuditService()
     ) {
     }
 
@@ -42,6 +43,21 @@ final class AuthenticationService
 
         if ($throttleState['is_blocked'] === true) {
             $this->loginThrottleService->recordAttempt($normalizedEmail, null, $ipAddress, false);
+            $this->auditService->record(
+                'login_blocked',
+                null,
+                null,
+                null,
+                $ipAddress,
+                $userAgent,
+                [
+                    'auth_method' => 'local_password',
+                    'reason_code' => $throttleState['reason'] ?? 'throttled',
+                    'lock_minutes' => $throttleState['lock_minutes'] ?? null,
+                    'identifier_failures' => $throttleState['identifier_failures'] ?? null,
+                    'ip_failures' => $throttleState['ip_failures'] ?? null,
+                ]
+            );
 
             return $this->failureResponse(true, $throttleState);
         }
@@ -50,6 +66,19 @@ final class AuthenticationService
 
         if ($user === null) {
             $this->loginThrottleService->recordAttempt($normalizedEmail, null, $ipAddress, false);
+            $this->auditService->record(
+                'login_failed',
+                null,
+                null,
+                null,
+                $ipAddress,
+                $userAgent,
+                [
+                    'auth_method' => 'local_password',
+                    'reason_code' => 'credentials_rejected',
+                    'result' => 'failed',
+                ]
+            );
 
             return $this->failureResponse(false, $throttleState);
         }
@@ -59,12 +88,37 @@ final class AuthenticationService
 
         if (!$this->canAuthenticate($user) || $passwordHash === null || !$this->passwordService->verify($password, $passwordHash)) {
             $this->loginThrottleService->recordAttempt($normalizedEmail, $userId, $ipAddress, false);
+            $this->auditService->record(
+                'login_failed',
+                null,
+                'users',
+                $userId,
+                $ipAddress,
+                $userAgent,
+                [
+                    'auth_method' => 'local_password',
+                    'reason_code' => 'credentials_rejected',
+                    'result' => 'failed',
+                ]
+            );
 
             return $this->failureResponse(false, $throttleState);
         }
 
         $this->loginThrottleService->recordAttempt($normalizedEmail, $userId, $ipAddress, true);
         $session = $this->sessionService->createSession($userId, $ipAddress, $userAgent);
+        $this->auditService->record(
+            'login_success',
+            $userId,
+            'users',
+            $userId,
+            $ipAddress,
+            $userAgent,
+            [
+                'auth_method' => 'local_password',
+                'result' => 'success',
+            ]
+        );
 
         return [
             'success' => true,
