@@ -13,6 +13,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - Modellgrund: Sprint 1E lägger till BaseModel, BaseRepository, Collection och ModelException utan SQL eller affärslogik.
 - Controller-/view-grund: Sprint 1F lägger till BaseController, View, RedirectResponse och HomeController utan affärslogik.
 - HTTP-grund: Sprint 1G lägger till JsonResponse, ViewResponse, HttpException och NotFoundException utan affärslogik.
+- Lokal adminstart: Sprint 2H lägger till ett CLI-verktyg för att skapa första administratören i lokal databas.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -76,6 +77,7 @@ npm run lint
 | `npm run lint` | Kör ESLint mot källkoden. |
 | `npm run db:generate` | Genererar Drizzle-migrationer när schemaarbete införs senare. |
 | `php database/migrate.php` | Kör PHP-migrationer från `database/migrations/`. |
+| `php database/create-admin.php` | Skapar första lokala administratören interaktivt när seedad adminroll finns. |
 
 ## Sites kontra public_html
 
@@ -113,6 +115,7 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `routes/web.php`: tekniska routes för `/` och `/health`.
 - `database/migrations/`: SQL-migrationer. Sprint 1D innehåller endast intern `migrations`-tabell.
 - `database/migrate.php`: CLI-script för att köra migrationer.
+- `database/create-admin.php`: interaktivt CLI-script för att skapa första administratören efter att identity seed-data finns.
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 

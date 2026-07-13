@@ -52,4 +52,59 @@ final class UserRepository extends BaseRepository
 
         return $row === false ? null : new User($row);
     }
+
+    /**
+     * Determine whether an email already exists, including soft-deleted users.
+     */
+    public function emailExists(string $email): bool
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT 1 FROM users WHERE email_normalized = :email LIMIT 1'
+        );
+        $statement->execute(['email' => strtolower(trim($email))]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * Create a local password user for first-admin provisioning.
+     */
+    public function createLocalUser(
+        string $email,
+        string $passwordHash,
+        ?string $firstName = null,
+        ?string $lastName = null
+    ): User {
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO users (
+                email,
+                email_normalized,
+                password_hash,
+                first_name,
+                last_name,
+                status_key,
+                created_at,
+                updated_at
+            ) VALUES (
+                :email,
+                :email_normalized,
+                :password_hash,
+                :first_name,
+                :last_name,
+                :status_key,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'email' => $email,
+            'email_normalized' => strtolower(trim($email)),
+            'password_hash' => $passwordHash,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'status_key' => 'active',
+        ]);
+
+        return $this->findById((int) Database::pdo()->lastInsertId());
+    }
 }

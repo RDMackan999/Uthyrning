@@ -37,4 +37,54 @@ final class RoleRepository extends BaseRepository
 
         return new Role($row);
     }
+
+    /**
+     * Find the existing seeded system administrator role.
+     */
+    public function findSystemAdminRole(): ?Role
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT * FROM roles
+             WHERE organization_id IS NULL
+                AND role_key = :role_key
+                AND status_key = :status_key
+                AND deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'role_key' => 'system_admin',
+            'status_key' => 'active',
+        ]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : new Role($row);
+    }
+
+    /**
+     * Assign an existing role to a user.
+     */
+    public function assignToUser(int $userId, int $roleId, ?int $organizationId = null): void
+    {
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO user_roles (
+                user_id,
+                role_id,
+                organization_id,
+                created_at,
+                updated_at
+            ) VALUES (
+                :user_id,
+                :role_id,
+                :organization_id,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_id' => $organizationId,
+        ]);
+    }
 }
