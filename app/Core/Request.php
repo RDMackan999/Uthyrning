@@ -10,6 +10,11 @@ namespace App\Core;
 final class Request
 {
     /**
+     * Authenticated user id set by trusted middleware only.
+     */
+    private ?int $authenticatedUserId = null;
+
+    /**
      * @param array<string, mixed> $query
      * @param array<string, mixed> $post
      * @param array<string, mixed> $cookies
@@ -124,5 +129,21 @@ final class Request
         $userAgent = $this->server['HTTP_USER_AGENT'] ?? null;
 
         return is_string($userAgent) && $userAgent !== '' ? $userAgent : null;
+    }
+
+    /**
+     * Attach the authenticated user id after server-side session validation.
+     */
+    public function setAuthenticatedUserId(int $userId): void
+    {
+        $this->authenticatedUserId = $userId;
+    }
+
+    /**
+     * Return the server-validated authenticated user id.
+     */
+    public function authenticatedUserId(): ?int
+    {
+        return $this->authenticatedUserId;
     }
 }
