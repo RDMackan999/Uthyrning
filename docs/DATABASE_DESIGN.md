@@ -537,7 +537,8 @@ Syfte:
 Relationer:
 
 - Objekt ägs av organisation.
-- Objekt har kategori.
+- Objekt ska ha en primär kategori.
+- Objekt kan senare ha flera kategorier via relationstabell.
 - Objekt har plats.
 - Objekt kan ha flera priser eller prisperioder.
 - Objekt kan ha bilder, dokument, tillbehör och skickrapporter.
@@ -563,20 +564,83 @@ Tabeller:
 Syfte:
 
 - Hantera kategorier som Verktyg, Maskiner, Släp, Trädgård, Bygg och Övrigt.
+- Stödja publik objektlista, filtrering och framtida SEO.
 - Stödja hierarki senare utan att bygga ett tungt CMS.
+- Stödja både globala plattformskategorier och organisationsspecifika kategorier.
+
+Rekommenderad modell:
+
+- `item_categories` innehåller kategoriidentiteten.
+- `organization_id` är nullable.
+- `organization_id = NULL` betyder global plattformskategori.
+- `organization_id` med värde betyder kategori som ägs av en organisation.
+- Version 1 använder globala standardkategorier och tillåter organisationsspecifika kategorier i admin när adminfunktionen byggs.
+- `parent_id` ska finnas i modellen för framtida underkategorier, men Version 1 ska visa kategorier som en enkel nivå.
+- `name` är visningsnamn.
+- `slug` används för publik filtrering och framtida SEO.
+- `description` är valfri.
+- `sort_order` styr visningsordning.
+- `status_key` beskriver om kategorin är aktiv, inaktiv eller arkiverad.
+- `icon_key` kan användas för en enkel ikon i UI.
+- `media_asset_id` kan senare peka på en bild i mediabiblioteket.
+- `seo_title` och `seo_description` kan förberedas som valfria SEO-fält.
+- `created_at`, `updated_at` och `deleted_at` ska finnas.
+- Inga ENUM ska användas för status.
+- Kategorier ska normalt arkiveras eller soft delete:as, inte hårdraderas.
+
+Rekommenderad koppling till objekt:
+
+- `item_category_relations` kopplar objekt till kategori.
+- Varje objekt ska ha exakt en primär kategori i Version 1.
+- Relationstabellen ska förbereda flera kategorier per objekt senare.
+- Fält som `is_primary` och `sort_order` kan användas för att skilja primär kategori från framtida sekundära kategorier.
+- Databasen bör förhindra dubbla relationer mellan samma objekt och kategori.
+- Exakt en primär kategori per objekt kan behöva säkras med applikationsregel om MySQL/MariaDB-versionen inte ger en enkel portabel unik constraint för detta.
 
 Relationer:
 
-- Objekt kopplas till kategori.
-- Kategorier kan ha förälder/barn-relation.
+- `item_categories.organization_id` refererar `organizations.id` när kategorin är organisationsspecifik.
+- `item_categories.parent_id` refererar `item_categories.id`.
+- Global kategori får ha global förälder.
+- Organisationsspecifik kategori får ha global förälder eller förälder inom samma organisation.
+- Organisationsspecifik kategori får inte ha förälder i en annan organisation.
+- `item_category_relations.rental_item_id` refererar `rental_items.id`.
+- `item_category_relations.item_category_id` refererar `item_categories.id`.
+- Viktig historik ska bevaras; hård delete ska därför undvikas när objekt redan använder kategorin.
+
+Unika fält och index:
+
+- `slug` ska vara unik inom sitt kategoriscope.
+- Global kategori ska ha unik slug bland globala kategorier.
+- Organisationsspecifik kategori ska ha unik slug inom samma organisation.
+- `name` behöver inte vara tekniskt unikt, men admin bör varna vid snarlika namn inom samma scope.
+- Index behövs för `organization_id`, `parent_id`, `slug`, `status_key` och `sort_order`.
+- Relationstabellen behöver index för `rental_item_id` och `item_category_id`.
+- Relationstabellen behöver unik constraint för kombinationen `rental_item_id` och `item_category_id`.
 
 Framtida utbyggnad:
 
-- SEO-slugs.
+- Underkategorier i admin och publik filtrering.
+- SEO-routes baserade på slug.
 - Kategoriunika attribut.
 - Marketplace-filter.
+- Översättningar av kategorinamn och SEO-fält.
+- Redirect-hantering när slug ändras.
+- Bildhantering via mediabiblioteket.
 
-Risk: kategoriunika attribut kan snabbt bli komplext. Vänta med dynamiska attribut tills verkliga behov finns.
+Alternativ som valts bort:
+
+- Endast globala kategorier: enkelt i Version 1 men begränsar framtida marknadsplats och organisationsunika nischer.
+- Endast organisationsspecifika kategorier: flexibelt men riskerar duplicerade baskategorier och sämre publik SEO.
+- Direkt `category_id` på `rental_items`: enkelt men gör framtida flera kategorier dyrare att införa.
+- Separat `category_images`: inte motiverat i Version 1; mediabiblioteket bör återanvändas när bildbehovet finns.
+
+Risker:
+
+- Hybridmodellen kräver tydliga regler för slug-unicitet när `organization_id` är `NULL`.
+- Parent-regler måste valideras så att kategorier inte kopplas över fel organisation.
+- Kategoriunika attribut kan snabbt bli komplext. Vänta med dynamiska attribut tills verkliga behov finns.
+- Om slug ändras efter publicering behövs framtida redirect-strategi för SEO.
 
 ### Bokningar
 
@@ -1103,11 +1167,20 @@ Det är lockande att bygga en extremt flexibel modell för framtida AI, IoT, API
 
 ### Objekt
 
-- Kan ett objekt tillhöra flera kategorier?
+- Ska sekundära kategorier aktiveras i Version 1 eller vänta till marknadsplats/filter-sprint?
 - Behövs objektvarianter eller räcker en rad per fysisk utrustning?
 - Ska tillbehör hyras separat eller bara följa med ett objekt?
 - Ska pris kunna variera över tid?
 - Behövs deposition i Version 1?
+
+### Kategorier
+
+- Ska standardkategorierna vara exakt Verktyg, Maskiner, Släp, Trädgård, Bygg och Övrigt vid första seedning?
+- Ska organisationsspecifika kategorier kunna publiceras publikt direkt eller kräva separat godkännande senare?
+- Vilken ikonlista ska `icon_key` få använda i admin?
+- Ska kategori-URL i Version 1 innehålla organisationens slug eller bara kategorins slug?
+- Hur många nivåer av underkategorier ska tillåtas när hierarki aktiveras?
+- När ska redirect-hantering byggas för ändrade kategori-slugs?
 
 ### Bokningar och kalender
 

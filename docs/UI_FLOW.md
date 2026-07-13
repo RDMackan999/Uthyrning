@@ -175,6 +175,12 @@ Filter:
 - pris
 - tillgänglighet
 
+Kategori-filter:
+
+- Visar endast aktiva kategorier.
+- Ska stödja standardkategorierna Verktyg, Maskiner, Släp, Trädgård, Bygg och Övrigt.
+- Underkategorier visas inte i Version 1.
+
 ---
 
 # Objektdetalj
@@ -257,6 +263,27 @@ Administratören kan:
 - arkivera
 - lägga till bilder
 - lägga till dokument
+
+Vid skapa och redigera objekt väljer administratören en primär kategori.
+
+Kategorier hanteras som en enkel lista i Version 1.
+
+Framtida underkategorier och flera kategorier per objekt ska inte visas innan separat sprint.
+
+---
+
+# Kategorier
+
+Administratören ska senare kunna:
+
+- skapa kategori
+- redigera namn, slug, beskrivning och sortering
+- markera kategori som aktiv eller inaktiv
+- arkivera kategori om den inte ska användas för nya objekt
+
+Version 1 ska hålla kategoriadministrationen enkel.
+
+Underkategorier, kategoribilder, SEO-publicering och avancerade filter väntar till senare sprint.
 
 ---
 
