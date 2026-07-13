@@ -35,6 +35,20 @@ final class View
     }
 
     /**
+     * Render a template inside a layout.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function renderWithLayout(string $template, string $layout, array $data = []): string
+    {
+        $content = $this->render($template, $data);
+
+        return $this->render($layout, array_merge($data, [
+            'content' => $content,
+        ]));
+    }
+
+    /**
      * Resolve a template name such as pages/home to an allowed PHP file.
      */
     private function resolvePath(string $template): string
