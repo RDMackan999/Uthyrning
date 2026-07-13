@@ -55,6 +55,8 @@ Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till
 - Lazy PDO-anslutning via `App\Core\Database` och `App\Core\DatabaseConnection`
 - Tom `QueryBuilder`-placeholder för framtida sprint
 - Migrationsmotor via `App\Core\MigrationRunner`
+- Seed-runner via `App\Core\SeederRunner`
+- Publik PHP-entrypoint via `public/index.php`
 - Tekniska routes för `/` och `/health`
 - Interaktivt CLI-verktyg för att skapa första lokala administratören
 
@@ -245,14 +247,44 @@ config/database.example.php
 
 Skapa inte och committa inte riktiga config-filer med hemligheter.
 
-Backend-kärnan laddas via `App\Core\Bootstrap`. När en publik PHP-entrypoint införs i en senare sprint ska den skapa bootstrap-instansen och skicka responsen:
+Backend-kärnan laddas via `App\Core\Bootstrap`. Sprint 2I använder `public/index.php` som publik PHP-entrypoint:
 
 ```php
 $response = App\Core\Bootstrap::create()->run();
 $response->send();
 ```
 
-Sprint 1F skapar fortfarande ingen ny publik entrypoint och ändrar inte frontendens landningssida.
+PHP-entrypointen ändrar inte frontendens landningssida.
+
+## Lokal PHP-webbroot
+
+Sprint 2I använder:
+
+```text
+public/
+```
+
+som lokal PHP-webbroot för Laragon/Apache.
+
+Rekommenderad lokal URL:
+
+```text
+http://uthyrning.test
+```
+
+Alternativt kan Laragon använda ett annat lokalt hostnamn. Det viktiga är att document root pekar på projektets `public/`-katalog.
+
+`public/index.php` är enda publika PHP-entrypoint. Den laddar Composer-autoload om den finns, annars projektets PSR-4 fallback, startar `App\Core\Bootstrap`, fångar aktuell `Request`, dispatchar routes och skickar `Response`.
+
+Följande kataloger ska inte peka ut som webbroot och ska inte vara direkt åtkomliga via webben:
+
+```text
+app/
+config/
+database/
+storage/
+vendor/
+```
 
 ## Controller och views
 
@@ -347,6 +379,28 @@ database/migrations/0001_create_migrations_table.sql
 
 Denna migration skapar bara tabellen `migrations`. Produkt- och affärstabeller skapas i senare sprintar.
 
+## Seedning
+
+Seed-filer ligger i:
+
+```text
+database/seeders/
+```
+
+Kör seedning från projektroten:
+
+```bash
+php database/seed.php
+```
+
+Seed-runnern kör SQL-filer i filnamnsordning och förväntar sig att seed-filerna är idempotenta, till exempel med `WHERE NOT EXISTS` eller `INSERT IGNORE`. Den befintliga seedningen skapar systemroller och grundbehörigheter.
+
+Seed-runnern skapar aldrig administratörsanvändare. Första admin skapas separat med:
+
+```bash
+php database/create-admin.php
+```
+
 ## Skapa första administratören lokalt
 
 När identity- och auth-migrationer samt seed-data för roller och behörigheter finns i lokal databas kan första administratören skapas från projektroten:
@@ -364,6 +418,46 @@ Kommandot frågar interaktivt efter:
 - företagets namn
 
 På terminaler där dold input inte stöds visas en varning. Lösenord ska aldrig skickas som kommandoradsargument, sparas i repo eller skrivas ut i terminalen.
+
+## Verifiera lokalt loginflöde
+
+Efter att Laragon pekar på `public/`:
+
+1. Starta Apache och MySQL i Laragon.
+2. Kör migrationer:
+
+```bash
+php database/migrate.php
+```
+
+3. Kör seedning:
+
+```bash
+php database/seed.php
+```
+
+4. Skapa första admin om det saknas:
+
+```bash
+php database/create-admin.php
+```
+
+5. Öppna:
+
+```text
+http://uthyrning.test/login
+```
+
+6. Logga in med adminanvändaren.
+7. Kontrollera att lyckad inloggning redirectar till `/admin`.
+8. Kontrollera att `/admin` visar:
+
+```text
+Admin authenticated
+```
+
+9. Logga ut med formuläret som skickar `POST /logout`.
+10. Kontrollera att felaktig login visar ett generiskt fel.
 
 ---
 

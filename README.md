@@ -14,6 +14,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - Controller-/view-grund: Sprint 1F lägger till BaseController, View, RedirectResponse och HomeController utan affärslogik.
 - HTTP-grund: Sprint 1G lägger till JsonResponse, ViewResponse, HttpException och NotFoundException utan affärslogik.
 - Lokal adminstart: Sprint 2H lägger till ett CLI-verktyg för att skapa första administratören i lokal databas.
+- Lokal PHP-körning: Sprint 2I lägger till `public/index.php` som PHP-entrypoint och `database/seed.php` för idempotent seedning.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -77,6 +78,7 @@ npm run lint
 | `npm run lint` | Kör ESLint mot källkoden. |
 | `npm run db:generate` | Genererar Drizzle-migrationer när schemaarbete införs senare. |
 | `php database/migrate.php` | Kör PHP-migrationer från `database/migrations/`. |
+| `php database/seed.php` | Kör idempotenta seed-filer från `database/seeders/`. |
 | `php database/create-admin.php` | Skapar första lokala administratören interaktivt när seedad adminroll finns. |
 
 ## Sites kontra public_html
@@ -86,6 +88,14 @@ Den långsiktiga plattformen ska byggas med PHP 8.x, MySQL/MariaDB och PDO. En k
 Just nu finns ingen aktiv `public_html/`-struktur i källan. Den fungerande landningssidan ligger i Sites-strukturen och ska inte flyttas innan en dokumenterad strategi finns.
 
 När PHP/MySQL-grunden byggs vidare ska `docs/ARCHITECTURE.md` uppdateras med hur frontend, backend, API och hosting ska samexistera.
+
+För lokal PHP-backend pekar Laragon/Apache på:
+
+```text
+public/
+```
+
+`public/index.php` är den enda publika PHP-entrypointen. Katalogerna `app/`, `config/`, `database/`, `storage/` och `vendor/` ska inte exponeras direkt av webbservern.
 
 ## PHP-backendgrund
 
@@ -115,7 +125,9 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `routes/web.php`: tekniska routes för `/` och `/health`.
 - `database/migrations/`: SQL-migrationer. Sprint 1D innehåller endast intern `migrations`-tabell.
 - `database/migrate.php`: CLI-script för att köra migrationer.
+- `database/seed.php`: CLI-script för att köra seed-filer.
 - `database/create-admin.php`: interaktivt CLI-script för att skapa första administratören efter att identity seed-data finns.
+- `public/index.php`: lokal PHP-front controller för Laragon/Apache.
 - `storage/logs/`: plats för filbaserad loggning.
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 

@@ -31,6 +31,9 @@ yarn-error.log*
 .env*
 
 # local PHP configuration and secrets
+config/config.php
+config/database.php
+config/*.local.php
 public_html/assets/config/config.php
 public_html/assets/config/*.local.php
 *.key
