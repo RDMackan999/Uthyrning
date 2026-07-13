@@ -21,7 +21,8 @@ final class SessionService
 
     public function __construct(
         private readonly UserSessionRepository $userSessionRepository = new UserSessionRepository(),
-        private readonly TokenService $tokenService = new TokenService()
+        private readonly TokenService $tokenService = new TokenService(),
+        private readonly AuditService $auditService = new AuditService()
     ) {
     }
 
@@ -47,6 +48,18 @@ final class SessionService
             $this->truncate($ipAddress, 45),
             $this->truncate($userAgent, 500),
             $expiresAt
+        );
+        $this->auditService->record(
+            'session_created',
+            $userId,
+            'user_sessions',
+            $this->modelId($session),
+            $ipAddress,
+            $userAgent,
+            [
+                'result' => 'created',
+                'session_id' => $this->modelId($session),
+            ]
         );
 
         return [
@@ -133,7 +146,26 @@ final class SessionService
      */
     public function revoke(string $token): bool
     {
-        return $this->userSessionRepository->revoke($this->tokenService->hashToken($token));
+        $session = $this->findByToken($token);
+        $wasRevoked = $this->userSessionRepository->revoke($this->tokenService->hashToken($token));
+
+        if ($wasRevoked && $session !== null) {
+            $userId = $this->modelUserId($session);
+            $this->auditService->record(
+                'session_revoked',
+                $userId,
+                'user_sessions',
+                $this->modelId($session),
+                null,
+                null,
+                [
+                    'result' => 'revoked',
+                    'session_id' => $this->modelId($session),
+                ]
+            );
+        }
+
+        return $wasRevoked;
     }
 
     /**
@@ -141,7 +173,24 @@ final class SessionService
      */
     public function revokeAllForUser(int $userId): int
     {
-        return $this->userSessionRepository->revokeAllForUser($userId);
+        $revokedCount = $this->userSessionRepository->revokeAllForUser($userId);
+
+        if ($revokedCount > 0) {
+            $this->auditService->record(
+                'all_sessions_revoked',
+                $userId,
+                'users',
+                $userId,
+                null,
+                null,
+                [
+                    'result' => 'revoked',
+                    'sessions_revoked' => $revokedCount,
+                ]
+            );
+        }
+
+        return $revokedCount;
     }
 
     /**
@@ -160,6 +209,26 @@ final class SessionService
     private function value(UserSession $session, string $key): mixed
     {
         return $session->toArray()[$key] ?? null;
+    }
+
+    /**
+     * Read a model id as nullable integer.
+     */
+    private function modelId(UserSession $session): ?int
+    {
+        $id = $this->value($session, 'id');
+
+        return is_numeric($id) ? (int) $id : null;
+    }
+
+    /**
+     * Read a session user id as nullable integer.
+     */
+    private function modelUserId(UserSession $session): ?int
+    {
+        $userId = $this->value($session, 'user_id');
+
+        return is_numeric($userId) ? (int) $userId : null;
     }
 
     /**

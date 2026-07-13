@@ -23,7 +23,8 @@ final class TokenService
 
     public function __construct(
         private readonly PasswordResetTokenRepository $passwordResetTokenRepository = new PasswordResetTokenRepository(),
-        private readonly EmailVerificationTokenRepository $emailVerificationTokenRepository = new EmailVerificationTokenRepository()
+        private readonly EmailVerificationTokenRepository $emailVerificationTokenRepository = new EmailVerificationTokenRepository(),
+        private readonly AuditService $auditService = new AuditService()
     ) {
     }
 
@@ -58,6 +59,19 @@ final class TokenService
         $tokenHash = $this->hashToken($token);
         $expiresAt = $this->expiresAt($ttlMinutes);
         $record = $this->passwordResetTokenRepository->createToken($userId, $tokenHash, $expiresAt);
+        $this->auditService->record(
+            'password_reset_token_created',
+            null,
+            'users',
+            $userId,
+            null,
+            null,
+            [
+                'result' => 'created',
+                'token_record_id' => $this->modelId($record),
+                'ttl_minutes' => max(1, $ttlMinutes),
+            ]
+        );
 
         return [
             'token' => $token,
@@ -82,6 +96,19 @@ final class TokenService
         $tokenHash = $this->hashToken($token);
         $expiresAt = $this->expiresAt($ttlMinutes);
         $record = $this->emailVerificationTokenRepository->createToken($userId, $tokenHash, $expiresAt);
+        $this->auditService->record(
+            'email_verification_token_created',
+            null,
+            'users',
+            $userId,
+            null,
+            null,
+            [
+                'result' => 'created',
+                'token_record_id' => $this->modelId($record),
+                'ttl_minutes' => max(1, $ttlMinutes),
+            ]
+        );
 
         return [
             'token' => $token,
@@ -104,7 +131,26 @@ final class TokenService
      */
     public function markPasswordResetTokenUsed(string $token): bool
     {
-        return $this->passwordResetTokenRepository->markUsed($this->hashToken($token));
+        $record = $this->findValidPasswordResetToken($token);
+        $wasUsed = $this->passwordResetTokenRepository->markUsed($this->hashToken($token));
+
+        if ($wasUsed && $record !== null) {
+            $userId = $this->modelUserId($record);
+            $this->auditService->record(
+                'password_reset_token_used',
+                $userId,
+                'users',
+                $userId,
+                null,
+                null,
+                [
+                    'result' => 'used',
+                    'token_record_id' => $this->modelId($record),
+                ]
+            );
+        }
+
+        return $wasUsed;
     }
 
     /**
@@ -120,7 +166,26 @@ final class TokenService
      */
     public function markEmailVerificationTokenUsed(string $token): bool
     {
-        return $this->emailVerificationTokenRepository->markUsed($this->hashToken($token));
+        $record = $this->findValidEmailVerificationToken($token);
+        $wasUsed = $this->emailVerificationTokenRepository->markUsed($this->hashToken($token));
+
+        if ($wasUsed && $record !== null) {
+            $userId = $this->modelUserId($record);
+            $this->auditService->record(
+                'email_verification_token_used',
+                $userId,
+                'users',
+                $userId,
+                null,
+                null,
+                [
+                    'result' => 'used',
+                    'token_record_id' => $this->modelId($record),
+                ]
+            );
+        }
+
+        return $wasUsed;
     }
 
     /**
@@ -131,5 +196,25 @@ final class TokenService
         return (new DateTimeImmutable('now', new DateTimeZone('UTC')))
             ->modify(sprintf('+%d minutes', max(1, $ttlMinutes)))
             ->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Read a model id as nullable integer.
+     */
+    private function modelId(PasswordResetToken|EmailVerificationToken $model): ?int
+    {
+        $id = $model->toArray()['id'] ?? null;
+
+        return is_numeric($id) ? (int) $id : null;
+    }
+
+    /**
+     * Read a token user id as nullable integer.
+     */
+    private function modelUserId(PasswordResetToken|EmailVerificationToken $model): ?int
+    {
+        $userId = $model->toArray()['user_id'] ?? null;
+
+        return is_numeric($userId) ? (int) $userId : null;
     }
 }
