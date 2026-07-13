@@ -12,12 +12,16 @@ final class Request
     /**
      * @param array<string, mixed> $query
      * @param array<string, mixed> $post
+     * @param array<string, mixed> $cookies
+     * @param array<string, mixed> $server
      */
     public function __construct(
         private readonly string $method,
         private readonly string $uri,
         private readonly array $query = [],
         private readonly array $post = [],
+        private readonly array $cookies = [],
+        private readonly array $server = [],
     ) {
     }
 
@@ -31,6 +35,8 @@ final class Request
             (string) ($_SERVER['REQUEST_URI'] ?? '/'),
             $_GET,
             $_POST,
+            $_COOKIE,
+            $_SERVER,
         );
     }
 
@@ -86,5 +92,37 @@ final class Request
         }
 
         return $this->post[$key] ?? $default;
+    }
+
+    /**
+     * Read cookie data, or return all cookie data when key is omitted.
+     */
+    public function cookie(?string $key = null, mixed $default = null): mixed
+    {
+        if ($key === null) {
+            return $this->cookies;
+        }
+
+        return $this->cookies[$key] ?? $default;
+    }
+
+    /**
+     * Return the best available client IP address.
+     */
+    public function ipAddress(): string
+    {
+        $ipAddress = $this->server['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        return is_string($ipAddress) && $ipAddress !== '' ? $ipAddress : '0.0.0.0';
+    }
+
+    /**
+     * Return the user agent when available.
+     */
+    public function userAgent(): ?string
+    {
+        $userAgent = $this->server['HTTP_USER_AGENT'] ?? null;
+
+        return is_string($userAgent) && $userAgent !== '' ? $userAgent : null;
     }
 }

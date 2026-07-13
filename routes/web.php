@@ -2,13 +2,22 @@
 
 declare(strict_types=1);
 
+use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Core\Config;
+use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
 
 return static function (Router $router): void {
+    $authController = new AuthController();
+
     $router->get('/', static fn (): Response => (new HomeController())->index());
+
+    $router->get('/login', static fn (Request $request): Response => $authController->showLogin($request));
+    $router->post('/login', static fn (Request $request): Response => $authController->login($request));
+    $router->post('/logout', static fn (Request $request): Response => $authController->logout($request));
+    $router->get('/admin', static fn (Request $request): Response => $authController->admin($request));
 
     $router->get('/health', static fn (): Response => Response::json([
         'status' => 'ok',

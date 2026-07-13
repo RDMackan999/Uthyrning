@@ -48,6 +48,16 @@ next-env.d.ts
 public_html/assets/uploads/*
 !public_html/assets/uploads/.gitkeep
 
+# local backend runtime files
+/storage/cache/*
+!/storage/cache/.gitkeep
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/sessions/*
+!/storage/sessions/.gitkeep
+/storage/temp/*
+!/storage/temp/.gitkeep
+
 # local codex workspace artifacts
 /work/
 /outputs/
