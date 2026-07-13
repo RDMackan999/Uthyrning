@@ -26,6 +26,16 @@ abstract class BaseController
     }
 
     /**
+     * Render a PHP view template inside a layout.
+     *
+     * @param array<string, mixed> $data
+     */
+    protected function viewWithLayout(string $template, string $layout, array $data = []): Response
+    {
+        return new ViewResponse($template, $data, 200, $this->viewRenderer, $layout);
+    }
+
+    /**
      * Return a JSON response.
      *
      * @param array<string, mixed> $data
