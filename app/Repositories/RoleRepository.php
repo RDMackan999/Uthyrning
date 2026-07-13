@@ -87,4 +87,49 @@ final class RoleRepository extends BaseRepository
             'organization_id' => $organizationId,
         ]);
     }
+
+    /**
+     * Determine whether a user has at least one active system-level role.
+     *
+     * @param list<string> $roleKeys
+     */
+    public function userHasAnySystemRole(int $userId, array $roleKeys): bool
+    {
+        $roleKeys = array_values(array_filter(
+            array_unique(array_map(static fn (string $roleKey): string => trim($roleKey), $roleKeys)),
+            static fn (string $roleKey): bool => $roleKey !== ''
+        ));
+
+        if ($roleKeys === []) {
+            return false;
+        }
+
+        $placeholders = [];
+        $params = [
+            'user_id' => $userId,
+            'status_key' => 'active',
+        ];
+
+        foreach ($roleKeys as $index => $roleKey) {
+            $name = 'role_key_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $roleKey;
+        }
+
+        $statement = Database::pdo()->prepare(
+            'SELECT 1
+             FROM user_roles
+             INNER JOIN roles ON roles.id = user_roles.role_id
+             WHERE user_roles.user_id = :user_id
+                AND user_roles.organization_id IS NULL
+                AND roles.organization_id IS NULL
+                AND roles.status_key = :status_key
+                AND roles.deleted_at IS NULL
+                AND roles.role_key IN (' . implode(', ', $placeholders) . ')
+             LIMIT 1'
+        );
+        $statement->execute($params);
+
+        return $statement->fetchColumn() !== false;
+    }
 }
