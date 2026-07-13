@@ -56,8 +56,9 @@ Sprint 1B innehåller den första fungerande PHP-kärnan, Sprint 1C lägger till
 - Tom `QueryBuilder`-placeholder för framtida sprint
 - Migrationsmotor via `App\Core\MigrationRunner`
 - Tekniska routes för `/` och `/health`
+- Interaktivt CLI-verktyg för att skapa första lokala administratören
 
-Ingen login, inga användare, inga roller, inga bokningar, inga objekt, inget API och inga integrationer är implementerade.
+Ingen publik registrering, adminpanel, bokning, objekt, API eller extern integration är implementerad.
 
 ## Databas
 
@@ -345,6 +346,24 @@ database/migrations/0001_create_migrations_table.sql
 ```
 
 Denna migration skapar bara tabellen `migrations`. Produkt- och affärstabeller skapas i senare sprintar.
+
+## Skapa första administratören lokalt
+
+När identity- och auth-migrationer samt seed-data för roller och behörigheter finns i lokal databas kan första administratören skapas från projektroten:
+
+```bash
+php database/create-admin.php
+```
+
+Kommandot frågar interaktivt efter:
+
+- e-post
+- visningsnamn
+- lösenord och bekräftelse
+- organisationens namn
+- företagets namn
+
+På terminaler där dold input inte stöds visas en varning. Lösenord ska aldrig skickas som kommandoradsargument, sparas i repo eller skrivas ut i terminalen.
 
 ---
 

@@ -37,4 +37,60 @@ final class CompanyRepository extends BaseRepository
 
         return new Company($row);
     }
+
+    /**
+     * Create an active company connected to an organization.
+     */
+    public function createForOrganization(int $organizationId, string $name): Company
+    {
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO companies (
+                organization_id,
+                name,
+                status_key,
+                created_at,
+                updated_at
+            ) VALUES (
+                :organization_id,
+                :name,
+                :status_key,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'name' => $name,
+            'status_key' => 'active',
+        ]);
+
+        return $this->findById((int) Database::pdo()->lastInsertId());
+    }
+
+    /**
+     * Connect a user to a company.
+     */
+    public function attachUser(int $companyId, int $userId): void
+    {
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO company_users (
+                company_id,
+                user_id,
+                status_key,
+                created_at,
+                updated_at
+            ) VALUES (
+                :company_id,
+                :user_id,
+                :status_key,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'user_id' => $userId,
+            'status_key' => 'active',
+        ]);
+    }
 }

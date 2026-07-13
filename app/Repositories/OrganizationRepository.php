@@ -37,4 +37,30 @@ final class OrganizationRepository extends BaseRepository
 
         return new Organization($row);
     }
+
+    /**
+     * Create an active organization for first-admin provisioning.
+     */
+    public function createOrganization(string $name): Organization
+    {
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO organizations (
+                name,
+                status_key,
+                created_at,
+                updated_at
+            ) VALUES (
+                :name,
+                :status_key,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'name' => $name,
+            'status_key' => 'active',
+        ]);
+
+        return $this->findById((int) Database::pdo()->lastInsertId());
+    }
 }
