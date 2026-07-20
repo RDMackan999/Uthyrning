@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Core\BaseRepository;
+use App\Core\Collection;
 use App\Core\Database;
 use App\Core\ModelException;
 use App\Models\Organization;
@@ -36,6 +37,27 @@ final class OrganizationRepository extends BaseRepository
         }
 
         return new Organization($row);
+    }
+
+    /**
+     * Find active organizations for admin selection.
+     *
+     * @return Collection<Organization>
+     */
+    public function findAllActive(): Collection
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT * FROM organizations
+             WHERE status_key = :status_key
+                AND deleted_at IS NULL
+             ORDER BY name ASC, id ASC'
+        );
+        $statement->execute(['status_key' => 'active']);
+
+        return new Collection(array_map(
+            static fn (array $row): Organization => new Organization($row),
+            $statement->fetchAll(PDO::FETCH_ASSOC)
+        ));
     }
 
     /**

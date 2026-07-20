@@ -83,6 +83,117 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding: 1.25rem;
         }
 
+        .admin-page-header {
+            align-items: flex-start;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .admin-button {
+            background: #172033;
+            border: 0;
+            border-radius: 6px;
+            color: #ffffff;
+            cursor: pointer;
+            display: inline-block;
+            font: inherit;
+            padding: 0.6rem 0.85rem;
+            text-decoration: none;
+        }
+
+        .admin-button-secondary {
+            background: #e8edf5;
+            color: #172033;
+        }
+
+        .admin-button-danger {
+            background: #9f1d2a;
+        }
+
+        .admin-table-wrap {
+            overflow-x: auto;
+        }
+
+        .admin-table {
+            border-collapse: collapse;
+            min-width: 760px;
+            width: 100%;
+        }
+
+        .admin-table th,
+        .admin-table td {
+            border-bottom: 1px solid #dce3ee;
+            padding: 0.7rem;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .admin-form {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .admin-form-grid,
+        .admin-readonly-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .admin-form label,
+        .admin-readonly-grid div {
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .admin-form input,
+        .admin-form select,
+        .admin-form textarea {
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font: inherit;
+            padding: 0.65rem;
+            width: 100%;
+        }
+
+        .admin-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .admin-checkboxes label {
+            align-items: center;
+            display: flex;
+            gap: 0.45rem;
+        }
+
+        .admin-checkboxes input {
+            width: auto;
+        }
+
+        .admin-error,
+        .admin-form em {
+            color: #9f1d2a;
+        }
+
+        .admin-message {
+            background: #eef6f1;
+            border: 1px solid #c9e6d3;
+            border-radius: 6px;
+            padding: 0.75rem;
+        }
+
+        .admin-archive-form {
+            border-top: 1px solid #dce3ee;
+            margin-top: 1.25rem;
+            padding-top: 1.25rem;
+        }
+
         .status-grid {
             display: grid;
             gap: 1rem;
@@ -112,7 +223,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
             <nav class="admin-nav" aria-label="Adminnavigation">
                 <a href="/admin">Dashboard</a>
-                <span aria-disabled="true">Objekt</span>
+                <a href="/admin/items">Objekt</a>
                 <span aria-disabled="true">Bokningar</span>
                 <span aria-disabled="true">Kunder</span>
                 <span aria-disabled="true">Service</span>

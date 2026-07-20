@@ -7,7 +7,12 @@ use App\Core\Config;
 use App\Core\Database;
 use App\Core\MigrationRunner;
 use App\Core\ModelException;
+use App\Core\Request;
+use App\Core\Response;
+use App\Core\Router;
 use App\Core\SeederRunner;
+use App\Core\View;
+use App\Http\RentalItemFormRequest;
 use App\Models\Category;
 use App\Models\ItemRate;
 use App\Models\RentalItem;
@@ -754,6 +759,151 @@ $runner->test('rental item and rate repositories enforce foundation scope rules'
                 'org-category-item-' . $suffix
             ),
             'Soft-deleted rental item should be excluded from organization lists.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('Router supports rental item admin public_id route parameters', static function (): void {
+    $router = new Router();
+    $router->get(
+        '/admin/items/{public_id}/edit',
+        static fn (Request $request): Response => Response::text((string) $request->route('public_id'))
+    );
+
+    $response = $router->dispatch(new Request('GET', '/admin/items/itm_test_public_id/edit'));
+
+    assertSame(200, $response->statusCode(), 'Parameterized route should return OK.');
+    assertSame('itm_test_public_id', $response->content(), 'Router should expose public_id route parameter.');
+});
+
+$runner->test('rental item admin list view renders item display fields', static function (): void {
+    $html = (new View())->render('admin/items/index', [
+        'items' => [[
+            'name' => 'Admin List Item',
+            'public_id' => 'itm_admin_list',
+            'primary_category_name' => 'Verktyg',
+            'organization_name' => 'Uthyrning Test',
+            'is_active' => 1,
+            'is_rentable' => 1,
+        ]],
+    ]);
+
+    assertTrue(str_contains($html, 'Admin List Item'), 'Admin list should render item name.');
+    assertTrue(str_contains($html, 'itm_admin_list'), 'Admin list should render public id.');
+    assertTrue(str_contains($html, 'Verktyg'), 'Admin list should render category name.');
+    assertTrue(str_contains($html, 'Uthyrning Test'), 'Admin list should render organization name.');
+});
+
+$runner->test('rental item admin form validation and repository listing work', static function () use (
+    $repository,
+    $rentalItemRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Admin Item One ' . $suffix, 'admin-item-one-' . $suffix);
+        $organizationTwoId = createOrganization('Admin Item Two ' . $suffix, 'admin-item-two-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for admin form validation.');
+        $globalCategoryId = (int) $globalCategory->toArray()['id'];
+
+        $organizationTwoCategory = $repository->create([
+            'organization_id' => $organizationTwoId,
+            'slug' => 'admin-org-two-' . $suffix,
+            'name' => 'Admin Org Two',
+        ]);
+
+        $item = $rentalItemRepository->create([
+            'organization_id' => $organizationOneId,
+            'primary_category_id' => $globalCategoryId,
+            'slug' => 'admin-item-' . $suffix,
+            'name' => 'Admin Item',
+            'short_name' => 'Admin',
+            'description' => 'Visible in admin list.',
+            'is_active' => true,
+            'is_rentable' => true,
+        ]);
+        $itemData = $item->toArray();
+
+        $formRequest = new RentalItemFormRequest();
+        $duplicate = $formRequest->validate([
+            'organization_id' => (string) $organizationOneId,
+            'primary_category_id' => (string) $globalCategoryId,
+            'slug' => 'admin-item-' . $suffix,
+            'name' => 'Duplicate Admin Item',
+            'is_active' => '1',
+            'is_rentable' => '1',
+        ]);
+        assertTrue(isset($duplicate['errors']['slug']), 'Duplicate slug in same organization should fail validation.');
+
+        $wrongCategory = $formRequest->validate([
+            'organization_id' => (string) $organizationOneId,
+            'primary_category_id' => (string) $organizationTwoCategory->toArray()['id'],
+            'slug' => 'wrong-category-admin-' . $suffix,
+            'name' => 'Wrong Category Admin Item',
+            'is_active' => '1',
+            'is_rentable' => '1',
+        ]);
+        assertTrue(isset($wrongCategory['errors']['primary_category_id']), 'Category from another organization should fail validation.');
+
+        $validUpdate = $formRequest->validate([
+            'organization_id' => (string) $organizationTwoId,
+            'primary_category_id' => (string) $organizationTwoCategory->toArray()['id'],
+            'slug' => 'admin-item-moved-' . $suffix,
+            'name' => 'Moved Admin Item',
+            'short_name' => 'Moved',
+            'description' => 'Moved to another organization.',
+            'public_id' => 'itm_should_not_change',
+            'is_active' => '1',
+            'is_rentable' => '1',
+        ], $item);
+        assertSame([], $validUpdate['errors'], 'Valid admin update should pass validation.');
+
+        $updated = $rentalItemRepository->update((int) $itemData['id'], $validUpdate['data'] + [
+            'public_id' => 'itm_should_not_change',
+        ]);
+        $updatedData = $updated->toArray();
+
+        assertSame($itemData['public_id'], $updatedData['public_id'], 'public_id should remain immutable.');
+        assertSame($organizationTwoId, (int) $updatedData['organization_id'], 'Admin update should persist organization selection.');
+        assertSame(
+            (int) $organizationTwoCategory->toArray()['id'],
+            (int) $updatedData['primary_category_id'],
+            'Admin update should persist scoped category selection.'
+        );
+
+        $adminRows = $rentalItemRepository->findAllForAdmin()->toArray();
+        $adminRow = null;
+
+        foreach ($adminRows as $row) {
+            if (is_array($row) && (int) ($row['id'] ?? 0) === (int) $itemData['id']) {
+                $adminRow = $row;
+                break;
+            }
+        }
+
+        assertNotNull($adminRow, 'Admin list repository should include the updated rental item.');
+        assertSame('Moved Admin Item', $adminRow['name'] ?? null, 'Admin list should expose rental item name.');
+        assertSame('Admin Item Two ' . $suffix, $adminRow['organization_name'] ?? null, 'Admin list should expose organization name.');
+        assertSame('Admin Org Two', $adminRow['primary_category_name'] ?? null, 'Admin list should expose category name.');
+
+        assertTrue($rentalItemRepository->delete((int) $itemData['id']), 'Admin archive should use repository soft delete.');
+        assertThrows(
+            static fn () => $rentalItemRepository->findById((int) $itemData['id']),
+            ModelException::class,
+            'Archived rental item should not be found by findById.'
         );
 
         $pdo->rollBack();

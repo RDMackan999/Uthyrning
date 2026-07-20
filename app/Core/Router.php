@@ -7,7 +7,7 @@ namespace App\Core;
 use Closure;
 
 /**
- * Small HTTP router for exact GET and POST route matching.
+ * Small HTTP router for GET and POST route matching.
  */
 final class Router
 {
@@ -60,11 +60,13 @@ final class Router
         try {
             $method = $request->method();
             $path = $this->normalizePath($request->path());
-            $route = $this->routes[$method][$path] ?? null;
+            $route = $this->matchRoute($method, $path);
 
             if (!is_array($route)) {
                 throw new NotFoundException();
             }
+
+            $request->setRouteParams($route['params']);
 
             return $this->runRoute($route['handler'], $route['middleware'], $request);
         } catch (HttpException $exception) {
@@ -102,6 +104,78 @@ final class Router
         }
 
         return Response::text((string) $result);
+    }
+
+    /**
+     * Match exact routes first and then simple {parameter} route patterns.
+     *
+     * @return array{handler: Closure, middleware: list<MiddlewareInterface>, params: array<string, string>}|null
+     */
+    private function matchRoute(string $method, string $path): ?array
+    {
+        $methodRoutes = $this->routes[$method] ?? [];
+        $exactRoute = $methodRoutes[$path] ?? null;
+
+        if (is_array($exactRoute)) {
+            return [
+                'handler' => $exactRoute['handler'],
+                'middleware' => $exactRoute['middleware'],
+                'params' => [],
+            ];
+        }
+
+        foreach ($methodRoutes as $routePath => $route) {
+            if (!str_contains($routePath, '{')) {
+                continue;
+            }
+
+            $params = $this->matchParameterizedRoute($routePath, $path);
+
+            if ($params === null) {
+                continue;
+            }
+
+            return [
+                'handler' => $route['handler'],
+                'middleware' => $route['middleware'],
+                'params' => $params,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Match route patterns such as /admin/items/{public_id}/edit.
+     *
+     * @return array<string, string>|null
+     */
+    private function matchParameterizedRoute(string $routePath, string $requestPath): ?array
+    {
+        $routeSegments = explode('/', trim($routePath, '/'));
+        $requestSegments = explode('/', trim($requestPath, '/'));
+
+        if (count($routeSegments) !== count($requestSegments)) {
+            return null;
+        }
+
+        $params = [];
+
+        foreach ($routeSegments as $index => $routeSegment) {
+            $requestSegment = $requestSegments[$index] ?? '';
+
+            if (preg_match('/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/', $routeSegment, $matches) === 1) {
+                $params[$matches[1]] = rawurldecode($requestSegment);
+
+                continue;
+            }
+
+            if ($routeSegment !== $requestSegment) {
+                return null;
+            }
+        }
+
+        return $params;
     }
 
     /**

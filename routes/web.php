@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\AdminDashboardController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
+use App\Controllers\RentalItemController;
 use App\Core\Config;
 use App\Core\Request;
 use App\Core\Response;
@@ -15,7 +16,12 @@ use App\Middleware\AuthorizationMiddleware;
 return static function (Router $router): void {
     $authController = new AuthController();
     $adminDashboardController = AdminDashboardController::fromConfig();
+    $rentalItemController = RentalItemController::fromConfig();
     $authenticationMiddleware = AuthenticationMiddleware::fromConfig();
+    $systemAdminMiddleware = [
+        $authenticationMiddleware,
+        new AuthorizationMiddleware(['system_admin']),
+    ];
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
 
@@ -29,10 +35,32 @@ return static function (Router $router): void {
     $router->get(
         '/admin',
         static fn (Request $request): Response => $adminDashboardController->index($request),
-        [
-            $authenticationMiddleware,
-            new AuthorizationMiddleware(['system_admin']),
-        ]
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/items',
+        static fn (Request $request): Response => $rentalItemController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/items/create',
+        static fn (Request $request): Response => $rentalItemController->create($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/items',
+        static fn (Request $request): Response => $rentalItemController->store($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/items/{public_id}/edit',
+        static fn (Request $request): Response => $rentalItemController->edit($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}',
+        static fn (Request $request): Response => $rentalItemController->update($request),
+        $systemAdminMiddleware
     );
 
     $router->get('/health', static fn (): Response => Response::json([

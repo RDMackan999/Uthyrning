@@ -121,6 +121,29 @@ final class CategoryRepository extends BaseRepository
     }
 
     /**
+     * Find an active category that can be used by one organization.
+     */
+    public function findAvailableForOrganizationById(int $categoryId, int $organizationId): ?Category
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT * FROM item_categories
+             WHERE id = :category_id
+                AND is_active = 1
+                AND deleted_at IS NULL
+                AND (organization_id IS NULL OR organization_id = :organization_id)
+             LIMIT 1'
+        );
+        $statement->execute([
+            'category_id' => $categoryId,
+            'organization_id' => $organizationId,
+        ]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : new Category($row);
+    }
+
+    /**
      * Create a category without creating related application features.
      *
      * @param array<string, mixed> $data
