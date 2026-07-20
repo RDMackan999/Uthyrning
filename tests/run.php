@@ -19,6 +19,7 @@ use App\Models\RentalItem;
 use App\Repositories\CategoryRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
+use App\Services\RentalItemPublicationService;
 
 $basePath = dirname(__DIR__);
 $autoloadPath = $basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
@@ -904,6 +905,114 @@ $runner->test('rental item admin form validation and repository listing work', s
             static fn () => $rentalItemRepository->findById((int) $itemData['id']),
             ModelException::class,
             'Archived rental item should not be found by findById.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('RentalItemPublicationService enforces Version 1 publication rules', static function () use (
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Publication Test ' . $suffix, 'publication-test-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for publication tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $service = new RentalItemPublicationService($rentalItemRepository, $itemRateRepository);
+
+        $item = $rentalItemRepository->create([
+            'organization_id' => $organizationId,
+            'primary_category_id' => $categoryId,
+            'slug' => 'publication-item-' . $suffix,
+            'name' => 'Publication Item',
+            'is_active' => true,
+            'is_rentable' => true,
+        ]);
+        $itemData = $item->toArray();
+
+        assertFalse($service->canPublish($item), 'Rentable draft without active daily rate should not publish.');
+        assertThrows(
+            static fn () => $service->publish($item),
+            ModelException::class,
+            'Publishing without daily rate should fail.'
+        );
+
+        $inactiveRate = $itemRateRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => (int) $itemData['id'],
+            'rate_type' => 'daily',
+            'amount' => '100.00',
+            'is_active' => false,
+        ]);
+        assertFalse($service->canPublish($item), 'Inactive daily rate should not allow publication.');
+
+        $itemRateRepository->delete((int) $inactiveRate->toArray()['id'], $organizationId);
+        assertFalse($service->canPublish($item), 'Soft-deleted daily rate should not allow publication.');
+
+        $itemRateRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => (int) $itemData['id'],
+            'rate_type' => 'daily',
+            'amount' => '125.00',
+            'is_active' => true,
+        ]);
+        assertTrue($service->canPublish($item), 'Complete rentable draft with active daily rate should publish.');
+
+        $published = $service->publish($item);
+        assertSame('published', $published->toArray()['publication_status_key'] ?? null, 'publish should set published status.');
+
+        $draft = $service->unpublish($published);
+        assertSame('draft', $draft->toArray()['publication_status_key'] ?? null, 'unpublish should move published item to draft.');
+
+        $publishedAgain = $service->publish($draft);
+        assertTrue($service->archive($publishedAgain), 'published item should archive.');
+        assertThrows(
+            static fn () => $rentalItemRepository->findById((int) $itemData['id']),
+            ModelException::class,
+            'Archived item should be soft-deleted from normal repository lookups.'
+        );
+
+        $baseData = $itemData + [
+            'publication_status_key' => 'draft',
+            'deleted_at' => null,
+        ];
+
+        assertFalse($service->canPublish(new RentalItem(array_merge($baseData, ['name' => '']))), 'Draft without name should be denied.');
+        assertFalse($service->canPublish(new RentalItem(array_merge($baseData, ['slug' => '']))), 'Draft without slug should be denied.');
+        assertFalse($service->canPublish(new RentalItem(array_merge($baseData, ['primary_category_id' => null]))), 'Draft without category should be denied.');
+        assertFalse($service->canPublish(new RentalItem(array_merge($baseData, ['is_active' => 0]))), 'Inactive item should be denied.');
+        assertFalse($service->canPublish(new RentalItem(array_merge($baseData, ['is_rentable' => 0]))), 'Non-rentable item should be denied.');
+
+        $archivedModel = new RentalItem(array_merge($baseData, ['publication_status_key' => 'archived']));
+        assertFalse($service->canPublish($archivedModel), 'Archived item should not publish directly.');
+        assertThrows(
+            static fn () => $service->publish($archivedModel),
+            ModelException::class,
+            'Archived item publish should throw.'
+        );
+
+        $softDeletedModel = new RentalItem(array_merge($baseData, ['deleted_at' => '2026-01-01 00:00:00']));
+        assertFalse($service->canPublish($softDeletedModel), 'Soft-deleted item should never publish.');
+        assertThrows(
+            static fn () => $service->publish($softDeletedModel),
+            ModelException::class,
+            'Soft-deleted item publish should throw.'
         );
 
         $pdo->rollBack();

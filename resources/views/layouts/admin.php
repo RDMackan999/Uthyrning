@@ -113,6 +113,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             background: #9f1d2a;
         }
 
+        .admin-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
         .admin-table-wrap {
             overflow-x: auto;
         }
@@ -190,6 +195,15 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
         .admin-archive-form {
             border-top: 1px solid #dce3ee;
+            margin-top: 1.25rem;
+            padding-top: 1.25rem;
+        }
+
+        .admin-publication-actions {
+            border-top: 1px solid #dce3ee;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
             margin-top: 1.25rem;
             padding-top: 1.25rem;
         }

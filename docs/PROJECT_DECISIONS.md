@@ -624,6 +624,55 @@ Kommande publiceringssprint ska kontrollera att bokningsbara objekt har dagspris
 
 ---
 
+# Beslut 0015
+
+## Datum
+
+2026-07-20
+
+## Status
+
+Accepted
+
+## Titel
+
+Publiceringsregler för uthyrningsobjekt i Version 1
+
+## Beslut
+
+Version 1 använder publiceringsstatusarna `draft`, `published` och `archived` för uthyrningsobjekt.
+
+Tillåtna övergångar är:
+
+- `draft` till `published`
+- `draft` till `archived`
+- `published` till `draft`
+- `published` till `archived`
+
+Arkiverade objekt får inte publiceras direkt.
+
+Publiceringsregler ska samlas i `RentalItemPublicationService`.
+
+Ett objekt får endast publiceras när grunddata finns, objektet är aktivt och uthyrningsbart, objektet inte är soft delete:at och objektet har minst ett aktivt dagspris (`rate_type = daily`) i `item_rates`.
+
+Prisadministration, pris-CRUD och pris-UI byggs inte i publiceringssprinten.
+
+## Motivering
+
+Publicering är en domänregel och ska därför inte spridas mellan controller, repository och vyer.
+
+Dagspris krävs för bokningsbara objekt enligt tidigare beslut, men administration av priser ska införas i en separat sprint för att hålla scope tydligt.
+
+## Konsekvens
+
+Controller får endast anropa publiceringsservicen och visa resultat.
+
+Repositories får endast lagra och hämta status- och prisdata.
+
+Kommande prissprint ska bygga adminflödet för att skapa och ändra priser utan att flytta publiceringsreglerna från servicen.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
