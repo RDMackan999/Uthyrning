@@ -50,6 +50,19 @@ Varje objekt har:
 - servicehistorik
 - bokningshistorik
 
+Version 1-beslut för objekt:
+
+- Ett objekt motsvarar en fysisk uthyrningsbar enhet.
+- Alla objekttyper, till exempel verktyg, maskiner, släp, byggutrustning och trädgårdsmaskiner, hanteras i samma objektdomän.
+- Separata objekttyper byggs inte i Version 1.
+- Varje publicerat objekt ska tillhöra en organisation och ha exakt en primär kategori.
+- Objekt ska kunna sparas som internt utkast innan det är publikt bokningsbart, men det får inte hyras ut förrän kravdata finns.
+- Ett objekt får bara hyras ut när det är aktivt, uthyrningsbart, har giltigt pris, har aktiv primär kategori och inte blockeras av bokning, kalender, service eller skadestatus.
+- Ett objekt får inte hyras ut när det är inaktivt, dolt för publik bokning, under service, trasigt, arkiverat eller soft delete:at.
+- Objekt ska arkiveras eller soft delete:as, inte hårdraderas, eftersom boknings-, service-, avtals- och skadehistorik måste bevaras.
+- Pris, moms, deposition och viktiga villkor ska kunna snapshotas på bokning eller avtal när dessa flöden byggs.
+- QR-kod, streckkod, RFID, GPS, IoT och fordonsunika regler är framtida funktioner och får inte krävas i Version 1.
+
 ---
 
 # Kategorier

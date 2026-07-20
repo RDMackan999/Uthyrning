@@ -168,6 +168,8 @@ Visar:
 - kategori
 - status
 
+Version 1 ska bara visa publikt bokningsbara objekt. Objekt som är dolda, arkiverade, soft delete:ade, trasiga eller under service ska inte visas som bokningsbara i den publika listan.
+
 Filter:
 
 - kategori
@@ -194,6 +196,8 @@ Visar:
 - kalender
 - dokument
 - villkor
+
+Objektdetaljen ska senare använda objektets publika slug i URL. Interna id:n ska inte visas som primär publik identifierare.
 
 Knapp:
 
@@ -269,6 +273,41 @@ Vid skapa och redigera objekt väljer administratören en primär kategori.
 Kategorier hanteras som en enkel lista i Version 1.
 
 Framtida underkategorier och flera kategorier per objekt ska inte visas innan separat sprint.
+
+Version 1-formulär för objekt ska hållas enkelt.
+
+Rekommenderade fält:
+
+- namn
+- kort beskrivning
+- primär kategori
+- status
+- uthyrningsbar ja/nej
+- dagspris
+- moms
+- deposition
+- plats
+- huvudbild
+- intern anteckning
+- inventarienummer
+- serienummer
+- tillverkare
+- modell
+- skick
+
+Fält som kan vänta till senare vyer eller avancerat läge:
+
+- inköpspris
+- försäkringsvärde
+- vikt och dimensioner
+- flera prisperioder
+- SEO-fält
+- QR-kod
+- streckkod
+- RFID
+- GPS
+- IoT
+- fordonsunika uppgifter
 
 ---
 
