@@ -12,6 +12,7 @@ use App\Core\Response;
 use App\Core\Router;
 use App\Core\SeederRunner;
 use App\Core\View;
+use App\Http\ItemRateFormRequest;
 use App\Http\RentalItemFormRequest;
 use App\Models\Category;
 use App\Models\ItemRate;
@@ -915,6 +916,147 @@ $runner->test('rental item admin form validation and repository listing work', s
 
         throw $exception;
     }
+});
+
+$runner->test('item rate admin foundation validates CRUD and active rate uniqueness', static function () use (
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Rate Admin Test ' . $suffix, 'rate-admin-test-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for item rate admin tests.');
+
+        $item = $rentalItemRepository->create([
+            'organization_id' => $organizationId,
+            'primary_category_id' => (int) $globalCategory->toArray()['id'],
+            'slug' => 'rate-admin-item-' . $suffix,
+            'name' => 'Rate Admin Item',
+            'is_active' => true,
+            'is_rentable' => true,
+        ]);
+        $itemId = (int) $item->toArray()['id'];
+
+        $formRequest = new ItemRateFormRequest($itemRateRepository);
+        $dailyValidation = $formRequest->validate([
+            'rate_type' => 'daily',
+            'amount' => '300',
+            'currency' => 'SEK',
+            'is_active' => '1',
+        ], $organizationId, $itemId);
+        assertSame([], $dailyValidation['errors'], 'Valid daily rate should pass validation.');
+
+        $dailyRate = $itemRateRepository->create($dailyValidation['data'] + [
+            'organization_id' => $organizationId,
+            'rental_item_id' => $itemId,
+        ]);
+        assertSame('300.00', $dailyRate->toArray()['amount'] ?? null, 'Daily rate amount should normalize.');
+
+        $duplicateDaily = $formRequest->validate([
+            'rate_type' => 'daily',
+            'amount' => '325',
+            'currency' => 'SEK',
+            'is_active' => '1',
+        ], $organizationId, $itemId);
+        assertTrue(isset($duplicateDaily['errors']['rate_type']), 'Duplicate active daily rate should fail validation.');
+        assertThrows(
+            static fn () => $itemRateRepository->create($duplicateDaily['data'] + [
+                'organization_id' => $organizationId,
+                'rental_item_id' => $itemId,
+            ]),
+            ModelException::class,
+            'Repository should guard against duplicate active daily rates.'
+        );
+
+        $weeklyRate = $itemRateRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $itemId,
+            'rate_type' => 'weekly',
+            'amount' => '1500.00',
+            'currency' => 'SEK',
+            'is_active' => true,
+        ]);
+        assertThrows(
+            static fn () => $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => $itemId,
+                'rate_type' => 'weekly',
+                'amount' => '1600.00',
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]),
+            ModelException::class,
+            'Only one active weekly rate should be allowed.'
+        );
+
+        $updatedDaily = $itemRateRepository->update((int) $dailyRate->toArray()['id'], [
+            'amount' => '350.00',
+            'currency' => 'SEK',
+            'is_active' => true,
+        ], $organizationId);
+        assertSame('350.00', $updatedDaily->toArray()['amount'] ?? null, 'Daily rate should update.');
+
+        $activeRates = $itemRateRepository->findActiveForItem($organizationId, $itemId);
+        assertTrue(collectionContainsRateType($activeRates, 'daily'), 'Active rates should include daily rate.');
+        assertTrue(collectionContainsRateType($activeRates, 'weekly'), 'Active rates should include weekly rate.');
+
+        $service = new RentalItemPublicationService($rentalItemRepository, $itemRateRepository);
+        assertTrue($service->canPublish($item), 'Publication service should find administrated active daily price.');
+
+        assertTrue($itemRateRepository->delete((int) $dailyRate->toArray()['id'], $organizationId), 'Admin archive should soft delete rate.');
+        assertThrows(
+            static fn () => $itemRateRepository->findByIdForItem($organizationId, $itemId, (int) $dailyRate->toArray()['id']),
+            ModelException::class,
+            'Soft-deleted item rate should not be found for item.'
+        );
+        assertFalse(
+            collectionContainsRateType($itemRateRepository->findActiveForItem($organizationId, $itemId), 'daily'),
+            'Soft-deleted daily rate should be excluded from active rate lookup.'
+        );
+
+        assertTrue($weeklyRate instanceof ItemRate, 'Weekly rate should remain available as a Version 1 rate type.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('item rate admin list view renders rate fields and actions', static function (): void {
+    $html = (new View())->render('admin/item-rates/index', [
+        'item' => [
+            'name' => 'Rate View Item',
+            'public_id' => 'itm_rate_view',
+        ],
+        'rates' => [[
+            'id' => 12,
+            'rate_type' => 'daily',
+            'amount' => '450.00',
+            'currency' => 'SEK',
+            'is_active' => 1,
+            'created_at' => '2026-01-01 00:00:00',
+            'updated_at' => '2026-01-02 00:00:00',
+        ]],
+        'csrfToken' => 'test-token',
+    ]);
+
+    assertTrue(str_contains($html, 'Rate View Item'), 'Rate list should render item name.');
+    assertTrue(str_contains($html, 'Dagspris'), 'Rate list should render type label.');
+    assertTrue(str_contains($html, '450.00'), 'Rate list should render amount.');
+    assertTrue(str_contains($html, 'SEK'), 'Rate list should render currency.');
+    assertTrue(str_contains($html, '/admin/items/itm_rate_view/rates/12/edit'), 'Rate list should render edit link.');
+    assertTrue(str_contains($html, '/admin/items/itm_rate_view/rates/12/archive'), 'Rate list should render archive action.');
 });
 
 $runner->test('RentalItemPublicationService enforces Version 1 publication rules', static function () use (
