@@ -118,6 +118,27 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             opacity: 0.55;
         }
 
+        .admin-inline-actions {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .admin-inline-actions form {
+            margin: 0;
+        }
+
+        .admin-link-button {
+            background: transparent;
+            border: 0;
+            color: #9f1d2a;
+            cursor: pointer;
+            font: inherit;
+            padding: 0;
+            text-decoration: underline;
+        }
+
         .admin-table-wrap {
             overflow-x: auto;
         }
@@ -237,7 +258,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
             <nav class="admin-nav" aria-label="Adminnavigation">
                 <a href="/admin">Dashboard</a>
-                <a href="/admin/items">Objekt</a>
+                <a href="/admin/items">Objekt och priser</a>
                 <span aria-disabled="true">Bokningar</span>
                 <span aria-disabled="true">Kunder</span>
                 <span aria-disabled="true">Service</span>
