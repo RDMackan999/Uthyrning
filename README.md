@@ -80,6 +80,9 @@ npm run lint
 | `php database/migrate.php` | Kör PHP-migrationer från `database/migrations/`. |
 | `php database/seed.php` | Kör idempotenta seed-filer från `database/seeders/`. |
 | `php database/create-admin.php` | Skapar första lokala administratören interaktivt när seedad adminroll finns. |
+| `php tests/run.php` | Kör nuvarande PHP-testsvit mot lokal databas och använder transaktioner för temporär testdata. |
+
+PHP-testerna förutsätter en lokal utvecklings- eller testdatabas enligt `config/database.php` eller `config/database.example.php`. Testsviten kan köra migrationer och seeders, men temporär repository-testdata skapas i transaktioner och rullas tillbaka.
 
 ## Sites kontra public_html
 
