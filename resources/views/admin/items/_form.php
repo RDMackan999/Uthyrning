@@ -10,6 +10,9 @@ $formAction = is_string($formAction ?? null) ? $formAction : '/admin/items';
 $formTitle = is_string($formTitle ?? null) ? $formTitle : 'Objekt';
 $submitLabel = is_string($submitLabel ?? null) ? $submitLabel : 'Spara';
 $item = is_array($item ?? null) ? $item : null;
+$publicationStatus = $item !== null && is_scalar($item['publication_status_key'] ?? null)
+    ? (string) $item['publication_status_key']
+    : 'draft';
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $value = static fn (string $key): string => is_scalar($data[$key] ?? null) ? (string) $data[$key] : '';
@@ -144,10 +147,25 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
     </form>
 
     <?php if ($item !== null): ?>
-        <form class="admin-archive-form" method="post" action="<?= $escape($formAction) ?>">
-            <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
-            <input type="hidden" name="_action" value="archive">
-            <button class="admin-button admin-button-danger" type="submit">Arkivera objekt</button>
-        </form>
+        <div class="admin-publication-actions">
+            <form method="post" action="<?= $escape($formAction) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                <input type="hidden" name="_action" value="publish">
+                <button class="admin-button" type="submit"<?= $publicationStatus === 'published' ? ' disabled' : '' ?>>Publicera</button>
+            </form>
+
+            <form method="post" action="<?= $escape($formAction) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                <input type="hidden" name="_action" value="unpublish">
+                <button class="admin-button admin-button-secondary" type="submit"<?= $publicationStatus !== 'published' ? ' disabled' : '' ?>>Avpublicera</button>
+            </form>
+
+            <form method="post" action="<?= $escape($formAction) ?>">
+                <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                <input type="hidden" name="_action" value="archive">
+                <button class="admin-button admin-button-danger" type="submit">Arkivera</button>
+            </form>
+        </div>
+
     <?php endif; ?>
 </section>

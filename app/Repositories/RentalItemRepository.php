@@ -297,6 +297,26 @@ final class RentalItemRepository extends BaseRepository
     }
 
     /**
+     * Persist the publication status selected by the domain service.
+     */
+    public function updatePublicationStatus(int|string $id, string $publicationStatusKey): RentalItem
+    {
+        $statement = Database::pdo()->prepare(
+            'UPDATE rental_items
+             SET publication_status_key = :publication_status_key,
+                updated_at = UTC_TIMESTAMP()
+             WHERE id = :id
+                AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'id' => $id,
+            'publication_status_key' => $this->normalizeKey($publicationStatusKey),
+        ]);
+
+        return $this->findById($id);
+    }
+
+    /**
      * Soft delete a rental item without removing history.
      */
     public function delete(int|string $id): bool

@@ -14,6 +14,7 @@ use App\Models\RentalItem;
 use App\Repositories\CategoryRepository;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\RentalItemRepository;
+use App\Services\RentalItemPublicationService;
 use Throwable;
 
 /**
@@ -28,6 +29,7 @@ final class RentalItemController extends BaseController
         private readonly OrganizationRepository $organizationRepository = new OrganizationRepository(),
         private readonly CategoryRepository $categoryRepository = new CategoryRepository(),
         private readonly RentalItemFormRequest $formRequest = new RentalItemFormRequest(),
+        private readonly RentalItemPublicationService $publicationService = new RentalItemPublicationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -40,7 +42,15 @@ final class RentalItemController extends BaseController
      */
     public static function fromConfig(): self
     {
-        return new self(new RentalItemRepository(), new OrganizationRepository(), new CategoryRepository());
+        $rentalItemRepository = new RentalItemRepository();
+
+        return new self(
+            $rentalItemRepository,
+            new OrganizationRepository(),
+            new CategoryRepository(),
+            new RentalItemFormRequest($rentalItemRepository),
+            new RentalItemPublicationService($rentalItemRepository)
+        );
     }
 
     /**
@@ -101,9 +111,7 @@ final class RentalItemController extends BaseController
     {
         $item = $this->itemFromRoute($request);
 
-        return $this->renderEdit($request, $item, $item->toArray(), [], $request->query('saved') === '1'
-            ? 'Objektet har sparats.'
-            : null);
+        return $this->renderEdit($request, $item, $item->toArray(), [], $this->savedMessage($request));
     }
 
     /**
@@ -120,10 +128,10 @@ final class RentalItemController extends BaseController
             ]);
         }
 
-        if ($this->stringValue($postData['_action'] ?? null) === 'archive') {
-            $this->rentalItemRepository->delete((int) $item->toArray()['id']);
+        $action = $this->stringValue($postData['_action'] ?? null);
 
-            return $this->redirect('/admin/items?archived=1');
+        if (in_array($action, ['publish', 'unpublish', 'archive'], true)) {
+            return $this->handlePublicationAction($request, $item, $action);
         }
 
         $validated = $this->formRequest->validate($postData, $item);
@@ -141,6 +149,34 @@ final class RentalItemController extends BaseController
         }
 
         return $this->redirect('/admin/items/' . rawurlencode((string) $updated->toArray()['public_id']) . '/edit?saved=1');
+    }
+
+    /**
+     * Run publication state changes through the publication domain service.
+     */
+    private function handlePublicationAction(Request $request, RentalItem $item, string $action): Response
+    {
+        try {
+            if ($action === 'publish') {
+                $updated = $this->publicationService->publish($item);
+
+                return $this->redirect('/admin/items/' . rawurlencode((string) $updated->toArray()['public_id']) . '/edit?saved=published');
+            }
+
+            if ($action === 'unpublish') {
+                $updated = $this->publicationService->unpublish($item);
+
+                return $this->redirect('/admin/items/' . rawurlencode((string) $updated->toArray()['public_id']) . '/edit?saved=unpublished');
+            }
+
+            $this->publicationService->archive($item);
+
+            return $this->redirect('/admin/items?archived=1');
+        } catch (Throwable $exception) {
+            return $this->renderEdit($request, $item, $item->toArray(), [
+                'form' => $this->publicationErrorMessage($action, $exception),
+            ]);
+        }
     }
 
     /**
@@ -274,5 +310,29 @@ final class RentalItemController extends BaseController
     private function stringValue(mixed $value): string
     {
         return is_string($value) || is_numeric($value) ? trim((string) $value) : '';
+    }
+
+    private function savedMessage(Request $request): ?string
+    {
+        return match ($request->query('saved')) {
+            '1' => 'Objektet har sparats.',
+            'published' => 'Objektet har publicerats.',
+            'unpublished' => 'Objektet har avpublicerats.',
+            default => null,
+        };
+    }
+
+    private function publicationErrorMessage(string $action, Throwable $exception): string
+    {
+        $prefix = match ($action) {
+            'publish' => 'Objektet kunde inte publiceras.',
+            'unpublish' => 'Objektet kunde inte avpubliceras.',
+            'archive' => 'Objektet kunde inte arkiveras.',
+            default => 'Åtgärden kunde inte utföras.',
+        };
+
+        $message = trim($exception->getMessage());
+
+        return $message === '' ? $prefix : $prefix . ' ' . $message;
     }
 }

@@ -68,6 +68,38 @@ Version 1-beslut för objekt:
 - Publika objektidentifierare ska vara oföränderliga och separata från interna tekniska id:n.
 - Slug ska vara unik inom en organisation.
 
+## Publicering av objekt
+
+Version 1 använder publiceringsstatusarna:
+
+- `draft`
+- `published`
+- `archived`
+
+Tillåtna övergångar:
+
+- `draft` -> `published`
+- `draft` -> `archived`
+- `published` -> `draft`
+- `published` -> `archived`
+
+Arkiverade objekt får inte publiceras direkt.
+
+Ett objekt får publiceras först när:
+
+- namn finns
+- slug finns
+- organisation finns
+- primär kategori finns
+- objektet är aktivt
+- objektet är uthyrningsbart
+- objektet inte är soft delete:at
+- objektet har minst ett aktivt dagspris (`rate_type = daily`) som inte är soft delete:at
+
+Alla publiceringsregler ska ligga i backendens publiceringsservice för uthyrningsobjekt.
+
+Prisadministration byggs separat. Sprint 4D får endast kontrollera att aktivt dagspris finns.
+
 ---
 
 # Kategorier

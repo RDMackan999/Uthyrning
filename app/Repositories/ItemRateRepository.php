@@ -105,6 +105,31 @@ final class ItemRateRepository extends BaseRepository
     }
 
     /**
+     * Check whether one rental item has an active, non-deleted daily rate.
+     */
+    public function hasActiveDailyRate(int $organizationId, int $rentalItemId): bool
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT COUNT(*)
+             FROM item_rates
+             INNER JOIN rental_items ON rental_items.id = item_rates.rental_item_id
+             WHERE item_rates.rental_item_id = :rental_item_id
+                AND rental_items.organization_id = :organization_id
+                AND item_rates.rate_type = :rate_type
+                AND item_rates.is_active = 1
+                AND item_rates.deleted_at IS NULL
+                AND rental_items.deleted_at IS NULL'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $rentalItemId,
+            'rate_type' => 'daily',
+        ]);
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    /**
      * Create a Version 1 item rate after validating rental item organization scope.
      *
      * @param array<string, mixed> $data
