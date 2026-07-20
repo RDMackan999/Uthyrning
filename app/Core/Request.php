@@ -15,6 +15,11 @@ final class Request
     private ?int $authenticatedUserId = null;
 
     /**
+     * @var array<string, string>
+     */
+    private array $routeParams = [];
+
+    /**
      * @param array<string, mixed> $query
      * @param array<string, mixed> $post
      * @param array<string, mixed> $cookies
@@ -145,5 +150,29 @@ final class Request
     public function authenticatedUserId(): ?int
     {
         return $this->authenticatedUserId;
+    }
+
+    /**
+     * Attach route parameters after trusted router matching.
+     *
+     * @param array<string, string> $params
+     */
+    public function setRouteParams(array $params): void
+    {
+        $this->routeParams = $params;
+    }
+
+    /**
+     * Read a route parameter, or return all route parameters when key is omitted.
+     *
+     * @return mixed
+     */
+    public function route(?string $key = null, mixed $default = null): mixed
+    {
+        if ($key === null) {
+            return $this->routeParams;
+        }
+
+        return $this->routeParams[$key] ?? $default;
     }
 }

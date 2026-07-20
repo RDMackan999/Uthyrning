@@ -119,6 +119,30 @@ final class RentalItemRepository extends BaseRepository
     }
 
     /**
+     * Find non-deleted rental items with admin list display fields.
+     *
+     * @return Collection<RentalItem>
+     */
+    public function findAllForAdmin(): Collection
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT rental_items.*,
+                organizations.name AS organization_name,
+                item_categories.name AS primary_category_name
+             FROM rental_items
+             INNER JOIN organizations
+                ON organizations.id = rental_items.organization_id
+             INNER JOIN item_categories
+                ON item_categories.id = rental_items.primary_category_id
+             WHERE rental_items.deleted_at IS NULL
+             ORDER BY rental_items.created_at DESC, rental_items.id DESC'
+        );
+        $statement->execute();
+
+        return $this->itemsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Create a rental item foundation record.
      *
      * @param array<string, mixed> $data
@@ -213,13 +237,17 @@ final class RentalItemRepository extends BaseRepository
     {
         $current = $this->findById($id);
         $currentData = $current->toArray();
-        $organizationId = (int) $currentData['organization_id'];
+        $organizationId = array_key_exists('organization_id', $data)
+            ? (int) $data['organization_id']
+            : (int) $currentData['organization_id'];
+        $primaryCategoryId = array_key_exists('primary_category_id', $data)
+            ? (int) $data['primary_category_id']
+            : (int) $currentData['primary_category_id'];
 
-        if (array_key_exists('primary_category_id', $data)) {
-            $this->ensureCategoryAvailableForOrganization((int) $data['primary_category_id'], $organizationId);
-        }
+        $this->ensureCategoryAvailableForOrganization($primaryCategoryId, $organizationId);
 
         $allowedFields = [
+            'organization_id',
             'owning_company_id',
             'primary_category_id',
             'slug',
@@ -393,6 +421,7 @@ final class RentalItemRepository extends BaseRepository
     private function prepareFieldValue(string $field, mixed $value): mixed
     {
         return match ($field) {
+            'organization_id' => (int) $value,
             'owning_company_id', 'primary_category_id', 'condition_grade_id' => $this->nullableInt($value),
             'slug' => $this->normalizeSlug((string) $value),
             'name' => trim((string) $value),
