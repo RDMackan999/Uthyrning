@@ -633,6 +633,18 @@ Version 1-fält:
 - Valfritt från start: serienummer, tillverkare, modell, inköpsdatum, inköpspris, nypris/ersättningsvärde, försäkringsvärde, vikt, dimensioner, färg.
 - Väntar: RFID, IoT, GPS, fordonsunika fält, dynamiska kategoriattribut, avancerad prislogik, flervaluta och BI-attribut.
 
+Sprint 4B låsta implementationbeslut:
+
+- `public_id` ska vara publik, slumpmässig/icke-sekventiell, oföränderlig, separat från `id` och genereras i applikationslagret.
+- `public_id` ska inte innehålla hemligheter eller bygga på auto-increment-id.
+- `slug` ska vara unik per `organization_id`, inte globalt.
+- Ett objekt får skapas utan dagspris som utkast.
+- Dagspris ska krävas senare innan objektet får publiceras som bokningsbart.
+- Deposition är valfri och lagras som nullable `deposit_amount`.
+- `item_rates` ingår i Version 1 foundation och ska stödja `daily`, `weekend`, `weekly` och `monthly`.
+- `hourly`, kampanjpriser, datumintervall, kundunika priser och dynamisk prissättning väntar.
+- Tills konfigurerbara statusdefinitioner byggs använder foundation-lagret `status_key` och `publication_status_key` som kontrollerade statusnycklar, inte ENUM.
+
 Koppling till kategorier:
 
 - `rental_items.primary_category_id` bör peka på den kategori som används i Version 1-listor, admin och SEO.
@@ -703,16 +715,13 @@ Risker:
 - Om media lagras direkt på objektet blir dokument, huvudbild och framtida bildvarianter svårare att återanvända.
 - Om fordon specialmodelleras för tidigt kan Version 1 bli onödigt tung. Fordonsunika krav bör vänta till separat sprint.
 
-Öppna frågor innan första objektsmigration:
+Återstående frågor efter Sprint 4B innan full objektsfunktion:
 
-- Ska `public_id` vara slumpmässig kod, UUID/ULID-liknande sträng eller prefixad inventariekod?
-- Ska `slug` vara unikt per organisation eller globalt i Version 1 när bara en uthyrare finns?
-- Ska dagspris vara obligatoriskt från start eller får objekt sparas som utkast utan pris?
-- Ska deposition vara obligatorisk, valfri eller standardstyrd per kategori/organisation?
-- Ska `item_rates` byggas samtidigt som `rental_items` eller i separat pris-sprint?
-- Vilka statusar ska vara seed-data i första objektsimplementationen?
+- Vilka statusar ska vara seed-data när statusdefinitioner införs?
 - Ska plats ligga direkt på objektet i Version 1 eller alltid i `item_locations`?
 - Vilka dokumenttyper är obligatoriska för vissa maskiner, till exempel CE-intyg eller besiktningsprotokoll?
+- När ska publiceringsregeln som kräver dagspris implementeras?
+- Behövs prisändringshistorik utöver soft delete på `item_rates`?
 
 ### Kategorier
 

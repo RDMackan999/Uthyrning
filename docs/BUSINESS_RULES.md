@@ -62,6 +62,11 @@ Version 1-beslut för objekt:
 - Objekt ska arkiveras eller soft delete:as, inte hårdraderas, eftersom boknings-, service-, avtals- och skadehistorik måste bevaras.
 - Pris, moms, deposition och viktiga villkor ska kunna snapshotas på bokning eller avtal när dessa flöden byggs.
 - QR-kod, streckkod, RFID, GPS, IoT och fordonsunika regler är framtida funktioner och får inte krävas i Version 1.
+- Objekt får skapas som utkast utan dagspris.
+- Dagspris ska krävas innan objektet senare får publiceras som bokningsbart.
+- Deposition är valfri.
+- Publika objektidentifierare ska vara oföränderliga och separata från interna tekniska id:n.
+- Slug ska vara unik inom en organisation.
 
 ---
 

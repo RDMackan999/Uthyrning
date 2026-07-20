@@ -570,6 +570,60 @@ SEO, QR-koder, streckkoder, RFID, GPS, IoT, fordonsunika fält, avancerad prislo
 
 ---
 
+# Beslut 0014
+
+## Datum
+
+2026-07-20
+
+## Status
+
+Accepted
+
+## Titel
+
+Rental item foundation-beslut för Version 1
+
+## Beslut
+
+`public_id` ska vara publik, icke-sekventiell, oföränderlig, separat från tekniskt `id` och genererad i applikationslagret.
+
+`slug` ska vara unik per organisation, inte globalt.
+
+Objekt får skapas utan dagspris som utkast.
+
+Dagspris krävs senare innan objektet får publiceras som bokningsbart.
+
+Deposition är valfri.
+
+`item_rates` ingår i rental item foundation och ska stödja Version 1-priserna `daily`, `weekend`, `weekly` och `monthly`.
+
+Flera kategorier förbereds via `item_category_relations`, men applikationslagret använder fortfarande en primär kategori i Version 1.
+
+Tills konfigurerbara statusdefinitioner byggs använder foundation-lagret kontrollerade statusnycklar för objektstatus och publiceringsstatus, inte ENUM.
+
+## Motivering
+
+Besluten stänger de öppna Sprint 4A-frågorna som måste vara låsta innan första objektsmigrationen.
+
+En icke-sekventiell publik identifierare minskar risken att interna id:n exponeras eller kan räknas upp.
+
+Slug per organisation gör framtida marknadsplats möjlig utan att alla uthyrare måste dela global URL-namnrymd.
+
+Utkast utan dagspris gör adminflödet enklare utan att publiceringsregeln tappas bort.
+
+`item_rates` från start gör att pris kan utvecklas över tid utan att låsas direkt i `rental_items`.
+
+## Konsekvens
+
+Sprint 4B får skapa migrationer, modeller och repositories för `rental_items` och `item_rates`.
+
+Ingen admin-CRUD, frontend, publik objektlista, bokningslogik, mediahantering, dokumenthantering eller avancerad prislogik ingår.
+
+Kommande publiceringssprint ska kontrollera att bokningsbara objekt har dagspris och övriga kravdata.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

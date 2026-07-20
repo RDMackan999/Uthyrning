@@ -9,7 +9,11 @@ use App\Core\MigrationRunner;
 use App\Core\ModelException;
 use App\Core\SeederRunner;
 use App\Models\Category;
+use App\Models\ItemRate;
+use App\Models\RentalItem;
 use App\Repositories\CategoryRepository;
+use App\Repositories\ItemRateRepository;
+use App\Repositories\RentalItemRepository;
 
 $basePath = dirname(__DIR__);
 $autoloadPath = $basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
@@ -238,16 +242,55 @@ function orderedSlugs(Collection $collection): array
     return $slugs;
 }
 
+function collectionContainsRentalItemSlug(Collection $collection, string $slug): bool
+{
+    foreach ($collection as $item) {
+        if (!$item instanceof RentalItem) {
+            continue;
+        }
+
+        if (($item->toArray()['slug'] ?? null) === $slug) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function collectionContainsRateType(Collection $collection, string $rateType): bool
+{
+    foreach ($collection as $rate) {
+        if (!$rate instanceof ItemRate) {
+            continue;
+        }
+
+        if (($rate->toArray()['rate_type'] ?? null) === $rateType) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 $runner = new TestRunner();
 $migrationRunner = new MigrationRunner($basePath);
 $seederRunner = new SeederRunner($basePath);
 $repository = new CategoryRepository();
+$rentalItemRepository = new RentalItemRepository();
+$itemRateRepository = new ItemRateRepository();
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
 
     assertTrue(tableExists('item_categories'), 'item_categories table should exist.');
     assertTrue(tableExists('item_category_relations'), 'item_category_relations table should exist.');
+});
+
+$runner->test('migrations create rental item foundation tables', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    assertTrue(tableExists('rental_items'), 'rental_items table should exist.');
+    assertTrue(tableExists('item_rates'), 'item_rates table should exist.');
 });
 
 $runner->test('item_categories has expected columns only for Sprint 3B', static function (): void {
@@ -300,7 +343,67 @@ $runner->test('category indexes and foreign keys match current foundation', stat
     assertTrue(indexExists('item_category_relations', 'idx_item_category_relations_item_category_id'), 'Category relation index missing.');
     assertTrue(foreignKeyExists('item_categories', 'organizations'), 'item_categories should reference organizations.');
     assertTrue(foreignKeyExists('item_category_relations', 'item_categories'), 'item_category_relations should reference item_categories.');
-    assertFalse(foreignKeyExists('item_category_relations', 'rental_items'), 'rental_items FK should wait until rental_items exists.');
+    assertTrue(foreignKeyExists('item_category_relations', 'rental_items'), 'item_category_relations should reference rental_items after Sprint 4B.');
+});
+
+$runner->test('rental item schema supports Sprint 4B foundation', static function (): void {
+    $rentalItemColumns = columnsFor('rental_items');
+    $itemRateColumns = columnsFor('item_rates');
+
+    foreach ([
+        'id',
+        'public_id',
+        'organization_id',
+        'owning_company_id',
+        'primary_category_id',
+        'slug',
+        'name',
+        'short_name',
+        'description',
+        'internal_note',
+        'manufacturer',
+        'model',
+        'serial_number',
+        'inventory_number',
+        'status_key',
+        'publication_status_key',
+        'condition_grade_id',
+        'is_active',
+        'is_rentable',
+        'vat_rate',
+        'deposit_amount',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, $rentalItemColumns, true), $column . ' should exist on rental_items.');
+    }
+
+    foreach (['qr_code_value', 'barcode_value', 'rfid_tag', 'gps_latitude', 'gps_longitude', 'seo_title'] as $futureColumn) {
+        assertFalse(in_array($futureColumn, $rentalItemColumns, true), $futureColumn . ' should not exist yet.');
+    }
+
+    foreach ([
+        'id',
+        'rental_item_id',
+        'rate_type',
+        'amount',
+        'currency',
+        'is_active',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, $itemRateColumns, true), $column . ' should exist on item_rates.');
+    }
+
+    assertTrue(indexExists('rental_items', 'uniq_rental_items_public_id'), 'public_id unique index missing.');
+    assertTrue(indexExists('rental_items', 'uniq_rental_items_organization_slug'), 'organization slug unique index missing.');
+    assertTrue(indexExists('item_rates', 'idx_item_rates_rental_item_id'), 'item rate item index missing.');
+    assertTrue(foreignKeyExists('rental_items', 'organizations'), 'rental_items should reference organizations.');
+    assertTrue(foreignKeyExists('rental_items', 'companies'), 'rental_items should reference companies.');
+    assertTrue(foreignKeyExists('rental_items', 'item_categories'), 'rental_items should reference item_categories.');
+    assertTrue(foreignKeyExists('item_rates', 'rental_items'), 'item_rates should reference rental_items.');
 });
 
 $runner->test('seed creates six global categories and is idempotent', static function () use ($seederRunner): void {
@@ -449,6 +552,209 @@ $runner->test('repository scope, CRUD, sorting and soft delete behavior', static
         assertFalse(collectionContainsSlug($repository->findForOrganization($organizationOneId), 'aaa-sort-' . $suffix), 'Soft-deleted category should be hidden from active scoped results.');
 
         assertTrue($inactive instanceof Category, 'Inactive category object should have been created for filtering test.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('RentalItem model maps to rental_items', static function (): void {
+    assertSame('rental_items', RentalItem::tableName(), 'RentalItem table name should match rental item foundation table.');
+});
+
+$runner->test('ItemRate model maps to item_rates', static function (): void {
+    assertSame('item_rates', ItemRate::tableName(), 'ItemRate table name should match item rate foundation table.');
+});
+
+$runner->test('rental item and rate repositories enforce foundation scope rules', static function () use (
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Rental Item Test One ' . $suffix, 'rental-item-test-one-' . $suffix);
+        $organizationTwoId = createOrganization('Rental Item Test Two ' . $suffix, 'rental-item-test-two-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for rental item test.');
+        $globalCategoryId = (int) $globalCategory->toArray()['id'];
+
+        $organizationOneCategory = $repository->create([
+            'organization_id' => $organizationOneId,
+            'slug' => 'item-org-one-' . $suffix,
+            'name' => 'Item Org One',
+        ]);
+        $organizationTwoCategory = $repository->create([
+            'organization_id' => $organizationTwoId,
+            'slug' => 'item-org-two-' . $suffix,
+            'name' => 'Item Org Two',
+        ]);
+
+        $globalItem = $rentalItemRepository->create([
+            'organization_id' => $organizationOneId,
+            'primary_category_id' => $globalCategoryId,
+            'slug' => 'shared-item-' . $suffix,
+            'name' => 'Shared Item One',
+            'description' => 'Created without daily price.',
+            'vat_rate' => '25.00',
+            'deposit_amount' => null,
+        ]);
+        $globalItemData = $globalItem->toArray();
+
+        assertTrue(str_starts_with((string) $globalItemData['public_id'], 'itm_'), 'public_id should use item prefix.');
+        assertFalse((string) $globalItemData['public_id'] === (string) $globalItemData['id'], 'public_id should not equal internal id.');
+        assertSame(null, $globalItemData['deposit_amount'], 'deposit_amount should be nullable.');
+        assertSame('draft', $globalItemData['publication_status_key'], 'New item should start as draft.');
+        assertSame('0', (string) $globalItemData['is_rentable'], 'Draft item should not be rentable by default.');
+
+        $organizationScopedItem = $rentalItemRepository->create([
+            'organization_id' => $organizationOneId,
+            'primary_category_id' => (int) $organizationOneCategory->toArray()['id'],
+            'slug' => 'org-category-item-' . $suffix,
+            'name' => 'Organization Category Item',
+            'is_rentable' => true,
+        ]);
+
+        $otherOrganizationSameSlug = $rentalItemRepository->create([
+            'organization_id' => $organizationTwoId,
+            'primary_category_id' => $globalCategoryId,
+            'slug' => 'shared-item-' . $suffix,
+            'name' => 'Shared Item Two',
+        ]);
+
+        assertFalse(
+            $globalItemData['public_id'] === $otherOrganizationSameSlug->toArray()['public_id'],
+            'public_id should be unique across rental items.'
+        );
+        assertSame(
+            $globalItemData['id'],
+            $rentalItemRepository->findByPublicId((string) $globalItemData['public_id'])?->toArray()['id'] ?? null,
+            'findByPublicId should find the created item.'
+        );
+        assertSame(
+            $otherOrganizationSameSlug->toArray()['id'],
+            $rentalItemRepository->findBySlug($organizationTwoId, 'shared-item-' . $suffix)?->toArray()['id'] ?? null,
+            'Same slug should be available in another organization.'
+        );
+
+        assertThrows(
+            static fn () => $rentalItemRepository->create([
+                'organization_id' => $organizationOneId,
+                'primary_category_id' => $globalCategoryId,
+                'slug' => 'shared-item-' . $suffix,
+                'name' => 'Duplicate Item One',
+            ]),
+            PDOException::class,
+            'Duplicate rental item slug in same organization should fail.'
+        );
+
+        assertThrows(
+            static fn () => $rentalItemRepository->create([
+                'organization_id' => $organizationOneId,
+                'primary_category_id' => (int) $organizationTwoCategory->toArray()['id'],
+                'slug' => 'wrong-category-' . $suffix,
+                'name' => 'Wrong Category Item',
+            ]),
+            ModelException::class,
+            'Category from another organization should be denied.'
+        );
+
+        $updated = $rentalItemRepository->update((int) $globalItemData['id'], [
+            'public_id' => 'itm_should_not_change',
+            'name' => 'Updated Shared Item One',
+            'slug' => 'updated-shared-item-' . $suffix,
+            'deposit_amount' => '500.00',
+            'is_rentable' => true,
+        ]);
+        $updatedData = $updated->toArray();
+
+        assertSame($globalItemData['public_id'], $updatedData['public_id'], 'public_id should not change on update.');
+        assertSame('updated-shared-item-' . $suffix, $updatedData['slug'], 'Slug should update only when explicitly supplied.');
+        assertSame('500.00', $updatedData['deposit_amount'], 'Deposit should be updatable when supplied.');
+
+        $relationStatement = $pdo->prepare(
+            'INSERT INTO item_category_relations (rental_item_id, item_category_id, is_primary, sort_order, created_at, updated_at)
+             VALUES (:rental_item_id, :item_category_id, 1, 0, UTC_TIMESTAMP(), UTC_TIMESTAMP())'
+        );
+        $relationStatement->execute([
+            'rental_item_id' => (int) $organizationScopedItem->toArray()['id'],
+            'item_category_id' => (int) $organizationOneCategory->toArray()['id'],
+        ]);
+
+        $dailyRate = $itemRateRepository->create([
+            'organization_id' => $organizationOneId,
+            'rental_item_id' => (int) $organizationScopedItem->toArray()['id'],
+            'rate_type' => 'daily',
+            'amount' => '250.00',
+            'currency' => 'sek',
+        ]);
+        $weekendRate = $itemRateRepository->create([
+            'organization_id' => $organizationOneId,
+            'rental_item_id' => (int) $organizationScopedItem->toArray()['id'],
+            'rate_type' => 'weekend',
+            'amount' => '600.00',
+        ]);
+
+        assertTrue(
+            collectionContainsRateType(
+                $itemRateRepository->findActiveForItem($organizationOneId, (int) $organizationScopedItem->toArray()['id']),
+                'daily'
+            ),
+            'Active daily rate should be visible in item scope.'
+        );
+        assertSame(
+            0,
+            count($itemRateRepository->findForItem($organizationTwoId, (int) $organizationScopedItem->toArray()['id'])),
+            'Item rates should not leak to another organization scope.'
+        );
+        assertThrows(
+            static fn () => $itemRateRepository->create([
+                'organization_id' => $organizationTwoId,
+                'rental_item_id' => (int) $organizationScopedItem->toArray()['id'],
+                'rate_type' => 'weekly',
+                'amount' => '1000.00',
+            ]),
+            ModelException::class,
+            'Creating a rate with the wrong organization should fail.'
+        );
+
+        $updatedRate = $itemRateRepository->update((int) $dailyRate->toArray()['id'], [
+            'amount' => '275.00',
+            'currency' => 'SEK',
+        ], $organizationOneId);
+        assertSame('275.00', $updatedRate->toArray()['amount'], 'Item rate amount should update.');
+        assertTrue($weekendRate instanceof ItemRate, 'Weekend rate should be created for allowed Version 1 rate type.');
+
+        assertTrue($itemRateRepository->delete((int) $dailyRate->toArray()['id'], $organizationOneId), 'Item rate should soft delete.');
+        assertThrows(
+            static fn () => $itemRateRepository->findById((int) $dailyRate->toArray()['id'], $organizationOneId),
+            ModelException::class,
+            'Soft-deleted item rate should not be found.'
+        );
+
+        assertTrue($rentalItemRepository->delete((int) $organizationScopedItem->toArray()['id']), 'Rental item should soft delete.');
+        assertThrows(
+            static fn () => $rentalItemRepository->findById((int) $organizationScopedItem->toArray()['id']),
+            ModelException::class,
+            'Soft-deleted rental item should not be found.'
+        );
+        assertFalse(
+            collectionContainsRentalItemSlug(
+                $rentalItemRepository->findForOrganization($organizationOneId),
+                'org-category-item-' . $suffix
+            ),
+            'Soft-deleted rental item should be excluded from organization lists.'
+        );
 
         $pdo->rollBack();
     } catch (Throwable $exception) {
