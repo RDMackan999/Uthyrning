@@ -554,6 +554,166 @@ Framtida utbyggnad:
 
 Senior rekommendation: skilj mellan objektets identitet och dess tillgänglighet. Tillgänglighet hör hemma i kalender/bokning, inte som ett enkelt fält på objektet.
 
+#### Sprint 4A: Rental Item Design
+
+Objektdomänen ska modellera fysisk utrustning som kan hyras ut: handverktyg, maskiner, släp, byggutrustning, trädgårdsmaskiner och senare även fordon. Version 1 ska hålla modellen enkel och utgå från egna uthyrningsobjekt, men varje central tabell ska ha `organization_id` så att marknadsplats med flera uthyrare kan införas utan ombyggnad.
+
+Rekommenderad huvudmodell:
+
+- Använd en gemensam huvudtabell `rental_items` för alla uthyrningsobjekt.
+- Skapa inte separata tabeller som `tools`, `trailers`, `machines` eller `vehicles` i Version 1.
+- Skillnader mellan objekttyper hanteras i första hand med kategori, status, skick, priser, dokument och senare konfigurerbara attribut.
+- Undvik ett generiskt `type`-fält utan styrd källa. Om typ behövs senare bör den modelleras via kategori, statusgrupp eller en kontrollerad konfigurationstabell.
+
+Alternativ som valts bort:
+
+1. Separata tabeller per objekttyp.
+   Fördel: varje typ kan få exakta fält. Nackdel: bokning, kalender, media, service och sökning blir duplicerad och svår att underhålla.
+2. En extremt generisk entity/attribute/value-modell.
+   Fördel: hög flexibilitet. Nackdel: svårare datakvalitet, sämre sökbarhet och mer komplex admin i Version 1.
+3. En gemensam `rental_items`-tabell med konkreta kärnfält.
+   Fördel: enkel, normaliserad och lätt att koppla till bokningar, kategorier, media och service. Nackdel: vissa framtida specialfält kräver kompletterande tabeller. Rekommenderas.
+
+Identifierare:
+
+- `id` är intern primärnyckel och ska aldrig användas som säker publik identifierare.
+- `public_id` bör införas när objekt får publika detaljerade länkar. Den ska vara stabil, icke-sekventiell och kunna visas i supportflöden.
+- `slug` används för publik URL och SEO. Den bör vara unik inom organisationens publiceringsscope.
+- `inventory_number` används internt för inventariehantering och etiketter.
+- `serial_number` är tillverkarens serienummer när det finns.
+- `qr_code_value`, `barcode_value` och RFID-kopplingar ska vänta tills respektive flöde specificeras. Datamodellen får inte kräva QR, streckkod eller RFID i Version 1.
+
+Rekommenderade fält på `rental_items` när tabellen senare implementeras:
+
+- `id`
+- `organization_id`
+- `owning_company_id` nullable, för juridisk ägare om den skiljer sig från organisationen.
+- `primary_category_id`
+- `item_status_id`
+- `condition_grade_id` nullable
+- `public_id`
+- `slug`
+- `name`
+- `short_name` nullable
+- `description` nullable
+- `internal_note` nullable
+- `serial_number` nullable
+- `inventory_number` nullable
+- `manufacturer` nullable
+- `model` nullable
+- `model_year` nullable
+- `purchase_date` nullable
+- `purchase_price` nullable
+- `replacement_value` nullable
+- `insurance_value` nullable
+- `weight_kg` nullable
+- `length_mm` nullable
+- `width_mm` nullable
+- `height_mm` nullable
+- `color` nullable
+- `is_active`
+- `is_rentable`
+- `vat_rate_id` nullable eller `vat_rate` om skattetabell inte är införd ännu.
+- `deposit_amount`
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Prisfält bör inte läggas direkt på `rental_items` om pris historiskt behöver ändras eller om flera prisperioder behövs. Rekommendationen är:
+
+- Version 1 använder `item_rates` för dagspris, veckopris, månadspris, helgpris och eventuell timpris.
+- `daily_price` får användas i UI och snapshots, men bör komma från aktuell prisrad.
+- Pengar lagras som `DECIMAL(12,2)`.
+- Moms ska vara explicit, antingen via `tax_rates`/`vat_rate_id` eller ett dokumenterat `vat_rate`-fält om skattetabell väntar.
+
+Version 1-fält:
+
+- Obligatoriskt: organisation, primär kategori, status, namn, slug eller genererad slug, publicerings-/uthyrningsflaggor, dagspris, momsregel, skapad/uppdaterad tid.
+- Rekommenderat från start: kort beskrivning, huvudbild via media, deposition, inventarienummer, intern anteckning, skick, plats.
+- Valfritt från start: serienummer, tillverkare, modell, inköpsdatum, inköpspris, nypris/ersättningsvärde, försäkringsvärde, vikt, dimensioner, färg.
+- Väntar: RFID, IoT, GPS, fordonsunika fält, dynamiska kategoriattribut, avancerad prislogik, flervaluta och BI-attribut.
+
+Koppling till kategorier:
+
+- `rental_items.primary_category_id` bör peka på den kategori som används i Version 1-listor, admin och SEO.
+- `item_category_relations` finns för framtida flera kategorier och ska innehålla relationen mellan objekt och primär kategori när objektdomänen byggs.
+- Version 1-regel: ett publicerat objekt ska ha exakt en primär kategori.
+- Framtida regel: ett objekt kan ha flera kategorier, men endast en primär kategori.
+- Validering ska säkerställa att kategorin är aktiv, inte soft delete:ad och antingen global eller tillhör samma organisation som objektet.
+
+Ägarskap och marknadsplats:
+
+- `organization_id` är uthyrarens tenant och äger objektets operativa flöde.
+- `owning_company_id` kan användas om objektets juridiska ägare behöver särskiljas från organisationen.
+- Version 1 använder en organisation och normalt ett ägarföretag.
+- Version 2 kan låta flera organisationer publicera objekt i samma marknadsplats utan att objekt flyttas mellan tenants.
+- Objekt ska inte kopplas direkt till en användare som ägare i kärnmodellen. Användare agerar via roller och medlemskap.
+
+Media och dokument:
+
+- Objektbilder ska gå via `media_assets` och `item_media`, inte som filvägar direkt på `rental_items`.
+- Version 1 bör stödja en huvudbild och flera detaljbilder när media byggs.
+- Dokument som manualer, CE-intyg, serviceprotokoll och besiktningsunderlag ska gå via dokument-/mediaflöden, inte som blandade kolumner på objektet.
+- Kritiska dokument som avtal ska ha tydliga domänrelationer när avtalsmodulen byggs.
+- Filer ska lagras utanför databasen; databasen lagrar metadata, checksumma, ägarskap och kopplingar.
+
+Statusmodell:
+
+- Objektstatus ska inte vara ENUM.
+- Rekommendationen är `status_groups` + `status_definitions`, där objektstatusar ligger i en egen grupp, till exempel `item_status`.
+- `rental_items.item_status_id` beskriver objektets permanenta eller operativa grundstatus.
+- `item_status_history` sparar statusförändringar med tidpunkt, aktör och kommentar.
+
+Version 1-statusar:
+
+- `active`: objektet är aktivt i systemet.
+- `rented`: objektet är utlämnat i en aktiv uthyrning.
+- `reserved`: objektet är reserverat genom godkänd bokning eller blockerad period.
+- `service`: objektet är under service eller underhåll.
+- `broken`: objektet är trasigt och får inte hyras ut.
+- `archived`: objektet är arkiverat och visas inte i normala flöden.
+- `hidden`: objektet är dolt publikt men kan administreras internt.
+
+Statusansvar:
+
+- Permanenta administrativa lägen: `active`, `archived`, `hidden`.
+- Temporära operativa lägen: `rented`, `reserved`, `service`, `broken`.
+- Tillgänglighet ska ändå beräknas från bokningar, kalenderblockeringar och serviceperioder. Status får inte ensam avgöra kalendern.
+
+Affärsregler:
+
+- Ett objekt får hyras ut när det är aktivt, uthyrningsbart, inte arkiverat, inte soft delete:at, har aktiv primär kategori, har giltigt pris och inte är blockerat av bokning, kalender, service eller trasig-status.
+- Ett objekt får inte hyras ut när det är inaktivt, dolt för publik bokning, under service, trasigt, arkiverat, soft delete:at eller saknar kravdata för bokning.
+- Arkivering ska sätta status/flagga och normalt även hindra nya bokningar, men ska inte radera historik.
+- Soft delete används endast när objektet ska tas bort ur normala flöden. Historiska bokningar, avtal, service och audit ska fortfarande kunna förstå objektet.
+- Bokningar och avtal bör snapshotta namn, pris, moms, deposition och viktiga villkor eftersom objektdata kan ändras senare.
+
+SEO:
+
+- Publik URL bör baseras på organisationens publika scope och objektets slug, till exempel `/objekt/<slug>` i Version 1 och senare eventuell organisationsdel för marknadsplats.
+- `slug` ska kunna ändras kontrollerat, men redirect-historik byggs senare.
+- `canonical_url`, `seo_title`, `seo_description` och Open Graph-fält väntar tills SEO-sprint.
+- Version 1 behöver en stabil slug och publik detaljvy, men inte full SEO-modul.
+
+Risker:
+
+- Om prisfält läggs direkt på objektet kan historiska prisändringar bli svåra att spåra.
+- Om status används som ersättning för kalender uppstår risk för dubbelbokningar.
+- Om objekt kopplas direkt till användare i stället för organisation blir marknadsplatsen svårare att införa.
+- Om media lagras direkt på objektet blir dokument, huvudbild och framtida bildvarianter svårare att återanvända.
+- Om fordon specialmodelleras för tidigt kan Version 1 bli onödigt tung. Fordonsunika krav bör vänta till separat sprint.
+
+Öppna frågor innan första objektsmigration:
+
+- Ska `public_id` vara slumpmässig kod, UUID/ULID-liknande sträng eller prefixad inventariekod?
+- Ska `slug` vara unikt per organisation eller globalt i Version 1 när bara en uthyrare finns?
+- Ska dagspris vara obligatoriskt från start eller får objekt sparas som utkast utan pris?
+- Ska deposition vara obligatorisk, valfri eller standardstyrd per kategori/organisation?
+- Ska `item_rates` byggas samtidigt som `rental_items` eller i separat pris-sprint?
+- Vilka statusar ska vara seed-data i första objektsimplementationen?
+- Ska plats ligga direkt på objektet i Version 1 eller alltid i `item_locations`?
+- Vilka dokumenttyper är obligatoriska för vissa maskiner, till exempel CE-intyg eller besiktningsprotokoll?
+
 ### Kategorier
 
 Tabeller:

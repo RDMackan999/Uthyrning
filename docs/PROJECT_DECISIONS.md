@@ -506,6 +506,70 @@ Marknadsplats, SEO, underkategorier, översättningar och avancerade filter krä
 
 ---
 
+# Beslut 0013
+
+## Datum
+
+2026-07-20
+
+## Status
+
+Accepted
+
+## Titel
+
+Objektmodell för uthyrningsobjekt
+
+## Beslut
+
+Alla uthyrningsobjekt ska modelleras i en gemensam objektdomän med `rental_items` som huvudtabell när objektschemat senare implementeras.
+
+Version 1 ska inte skapa separata tabeller eller separata domänmodeller för verktyg, maskiner, släp, byggutrustning, trädgårdsmaskiner eller fordon.
+
+Varje objekt representerar en fysisk uthyrningsbar enhet.
+
+Varje objekt ska kopplas till `organizations` från start.
+
+Ett objekt kan även kopplas till ett ägarföretag senare om juridiskt ägarskap behöver särskiljas från den operativa uthyrarorganisationen.
+
+Version 1 kräver exakt en primär kategori per publicerat objekt.
+
+Datamodellen ska använda `item_category_relations` för att förbereda flera kategorier senare, men sekundära kategorier ska inte aktiveras i Version 1.
+
+Objekt ska ha intern teknisk identitet och senare även publik identifierare genom `public_id` och/eller `slug`.
+
+QR-kod, streckkod, RFID, GPS, IoT och fordonsunika fält byggs inte i Version 1.
+
+Statusar ska inte vara ENUM. Objektstatus ska kunna modelleras via statusdefinitioner och historik när objektschemat byggs.
+
+Pris bör modelleras via `item_rates` så att prisändringar och framtida prisperioder inte låses direkt på objektets kärnrad.
+
+Media och dokument ska kopplas via media- och dokumentdomänen, inte som filvägar direkt på objektet.
+
+Objekt ska arkiveras eller soft delete:as, inte hårdraderas, eftersom boknings-, avtals-, service- och skadehistorik måste bevaras.
+
+## Motivering
+
+En gemensam objektdomän håller Version 1 enkel och gör samtidigt att bokningar, kalender, media, service, dokument och historik kan återanvändas för alla typer av utrustning.
+
+Separata tabeller per objekttyp skulle skapa duplicerad logik och göra framtida marknadsplats, sökning och bokningar svårare.
+
+En alltför generisk attributmodell skulle ge för hög komplexitet innan verkliga behov finns.
+
+Organisationstillhörighet från start minskar risken för en dyr multi-tenant-ombyggnad när marknadsplatsen införs.
+
+## Konsekvens
+
+Kommande objektdesign, migrationer, modeller och repositories ska följa `docs/DATABASE_DESIGN.md`.
+
+Adminflödet ska börja med en enkel objektadministration för Version 1.
+
+Publik objektlista och objektdetalj ska utgå från aktiva, uthyrningsbara objekt med primär kategori.
+
+SEO, QR-koder, streckkoder, RFID, GPS, IoT, fordonsunika fält, avancerad prislogik och flera kategorier kräver separata sprintar.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
