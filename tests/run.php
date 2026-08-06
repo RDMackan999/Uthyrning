@@ -1059,6 +1059,162 @@ $runner->test('item rate admin list view renders rate fields and actions', stati
     assertTrue(str_contains($html, '/admin/items/itm_rate_view/rates/12/archive'), 'Rate list should render archive action.');
 });
 
+$runner->test('public rental item listing exposes only publishable items', static function () use (
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Public Listing Test ' . $suffix, 'public-listing-test-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for public listing tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            string $slug,
+            string $name,
+            array $overrides = []
+        ) use ($rentalItemRepository, $organizationId, $categoryId): RentalItem {
+            return $rentalItemRepository->create(array_merge([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => $name,
+                'description' => 'Publik beskrivning.',
+                'internal_note' => 'Intern anteckning ska aldrig synas.',
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+            ], $overrides));
+        };
+
+        $addDailyRate = static function (RentalItem $item, bool $isActive = true) use (
+            $itemRateRepository,
+            $organizationId
+        ): ItemRate {
+            return $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '450.00',
+                'currency' => 'SEK',
+                'is_active' => $isActive,
+            ]);
+        };
+
+        $visibleItem = $createItem('public-visible-' . $suffix, 'Public Visible ' . $suffix);
+        $addDailyRate($visibleItem);
+
+        $draftItem = $createItem('public-draft-' . $suffix, 'Public Draft ' . $suffix, [
+            'publication_status_key' => 'draft',
+        ]);
+        $addDailyRate($draftItem);
+
+        $archivedItem = $createItem('public-archived-' . $suffix, 'Public Archived ' . $suffix, [
+            'publication_status_key' => 'archived',
+        ]);
+        $addDailyRate($archivedItem);
+
+        $softDeletedItem = $createItem('public-soft-deleted-' . $suffix, 'Public Soft Deleted ' . $suffix);
+        $addDailyRate($softDeletedItem);
+        $rentalItemRepository->delete((int) $softDeletedItem->toArray()['id']);
+
+        $inactiveItem = $createItem('public-inactive-' . $suffix, 'Public Inactive ' . $suffix, [
+            'is_active' => false,
+        ]);
+        $addDailyRate($inactiveItem);
+
+        $notRentableItem = $createItem('public-not-rentable-' . $suffix, 'Public Not Rentable ' . $suffix, [
+            'is_rentable' => false,
+        ]);
+        $addDailyRate($notRentableItem);
+
+        $createItem('public-without-rate-' . $suffix, 'Public Without Rate ' . $suffix);
+
+        $inactiveRateItem = $createItem('public-inactive-rate-' . $suffix, 'Public Inactive Rate ' . $suffix);
+        $addDailyRate($inactiveRateItem, false);
+
+        $softDeletedRateItem = $createItem('public-soft-deleted-rate-' . $suffix, 'Public Soft Deleted Rate ' . $suffix);
+        $softDeletedRate = $addDailyRate($softDeletedRateItem);
+        $itemRateRepository->delete((int) $softDeletedRate->toArray()['id'], $organizationId);
+
+        $listing = $rentalItemRepository->findPublicListing()->toArray();
+        $names = array_map(
+            static fn (array $item): string => (string) ($item['name'] ?? ''),
+            array_filter($listing, 'is_array')
+        );
+
+        assertTrue(in_array('Public Visible ' . $suffix, $names, true), 'Published active rentable item with daily rate should show.');
+        assertFalse(in_array('Public Draft ' . $suffix, $names, true), 'Draft item should not show.');
+        assertFalse(in_array('Public Archived ' . $suffix, $names, true), 'Archived item should not show.');
+        assertFalse(in_array('Public Soft Deleted ' . $suffix, $names, true), 'Soft-deleted item should not show.');
+        assertFalse(in_array('Public Inactive ' . $suffix, $names, true), 'Inactive item should not show.');
+        assertFalse(in_array('Public Not Rentable ' . $suffix, $names, true), 'Not rentable item should not show.');
+        assertFalse(in_array('Public Without Rate ' . $suffix, $names, true), 'Item without daily rate should not show.');
+        assertFalse(in_array('Public Inactive Rate ' . $suffix, $names, true), 'Item with inactive daily rate should not show.');
+        assertFalse(in_array('Public Soft Deleted Rate ' . $suffix, $names, true), 'Item with soft-deleted daily rate should not show.');
+
+        $visibleRow = null;
+        foreach ($listing as $row) {
+            if (is_array($row) && ($row['name'] ?? null) === 'Public Visible ' . $suffix) {
+                $visibleRow = $row;
+                break;
+            }
+        }
+
+        assertNotNull($visibleRow, 'Visible public row should be available for field checks.');
+        assertFalse(array_key_exists('id', $visibleRow), 'Public listing should not expose technical id.');
+        assertFalse(array_key_exists('internal_note', $visibleRow), 'Public listing should not expose internal note.');
+        assertSame('450.00', $visibleRow['daily_rate_amount'] ?? null, 'Public listing should expose active daily rate.');
+        assertSame('SEK', $visibleRow['daily_rate_currency'] ?? null, 'Public listing should expose daily rate currency.');
+
+        $html = (new View())->render('public/items/index', [
+            'items' => [$visibleRow + [
+                'id' => '999999',
+                'internal_note' => 'Hemlig intern notering',
+            ]],
+        ]);
+
+        assertTrue(str_contains($html, 'Public Visible ' . $suffix), 'Public view should render visible item.');
+        assertTrue(str_contains($html, '450 SEK/dag'), 'Public view should render daily rate.');
+        assertFalse(str_contains($html, 'Hemlig intern notering'), 'Public view should not render internal note.');
+        assertFalse(str_contains($html, '999999'), 'Public view should not render technical id.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('public rental item listing has empty state and unauthenticated route', static function () use ($basePath): void {
+    $html = (new View())->render('public/items/index', [
+        'items' => [],
+    ]);
+
+    assertTrue(
+        str_contains($html, 'Inga objekt finns tillgÃ¤ngliga fÃ¶r uthyrning just nu.'),
+        'Empty public list should show a friendly message.'
+    );
+
+    $router = new Router();
+    $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+    $routes($router);
+
+    $response = $router->dispatch(new Request('GET', '/items'));
+
+    assertSame(200, $response->statusCode(), 'Public /items route should not require authentication.');
+});
+
 $runner->test('RentalItemPublicationService enforces Version 1 publication rules', static function () use (
     $repository,
     $rentalItemRepository,

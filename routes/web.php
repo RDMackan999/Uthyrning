@@ -6,6 +6,7 @@ use App\Controllers\AdminDashboardController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
+use App\Controllers\PublicRentalItemController;
 use App\Controllers\RentalItemController;
 use App\Core\Config;
 use App\Core\Request;
@@ -17,6 +18,7 @@ use App\Middleware\AuthorizationMiddleware;
 return static function (Router $router): void {
     $authController = new AuthController();
     $adminDashboardController = AdminDashboardController::fromConfig();
+    $publicRentalItemController = new PublicRentalItemController();
     $rentalItemController = RentalItemController::fromConfig();
     $itemRateController = ItemRateController::fromConfig();
     $authenticationMiddleware = AuthenticationMiddleware::fromConfig();
@@ -26,6 +28,7 @@ return static function (Router $router): void {
     ];
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
+    $router->get('/items', static fn (Request $request): Response => $publicRentalItemController->index($request));
 
     $router->get('/login', static fn (Request $request): Response => $authController->showLogin($request));
     $router->post('/login', static fn (Request $request): Response => $authController->login($request));
