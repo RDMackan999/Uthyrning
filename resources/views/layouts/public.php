@@ -93,6 +93,13 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             margin: 0 0 0.5rem;
         }
 
+        .public-item-card h2 a,
+        .public-back-link a {
+            color: #172033;
+            text-decoration-color: #8aa0bd;
+            text-underline-offset: 0.18em;
+        }
+
         .public-item-meta {
             color: #526072;
             font-size: 0.95rem;
@@ -110,10 +117,65 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             margin: 0;
         }
 
+        .public-detail-link {
+            color: #172033;
+            display: inline-block;
+            font-weight: 700;
+            margin-top: 1rem;
+            text-decoration-color: #8aa0bd;
+            text-underline-offset: 0.18em;
+        }
+
+        .public-back-link {
+            margin: 0 0 1rem;
+        }
+
+        .public-detail {
+            background: #ffffff;
+            border: 1px solid #dce3ee;
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+
+        .public-detail-grid {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+        }
+
+        .public-detail-panel {
+            background: #f6f8fb;
+            border: 1px solid #dce3ee;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .public-detail-label {
+            color: #526072;
+            font-size: 0.9rem;
+            margin: 0 0 0.35rem;
+        }
+
+        .public-detail-price {
+            color: #172033;
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin: 0 0 0.75rem;
+        }
+
+        .public-detail-deposit {
+            color: #526072;
+            margin: 0;
+        }
+
         @media (max-width: 640px) {
             .public-header {
                 align-items: flex-start;
                 flex-direction: column;
+            }
+
+            .public-detail-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
