@@ -846,6 +846,137 @@ Framtida utbyggnad:
 
 Senior rekommendation: använd `booking_items` även om Version 1 oftast bokar ett objekt. Det gör senare paketbokningar och flera objekt per order enklare.
 
+#### Sprint 5A: Booking Design
+
+Bokningsdomänen ska byggas för ett enkelt Version 1-flöde där en kund skickar en bokningsförfrågan för ett publicerat objekt, men modellen ska redan från start kunna växa till flera objekt per bokning och flera uthyrare.
+
+Rekommenderad huvudmodell:
+
+- `bookings` är bokningens huvudtabell och äger status, organisation, kundkoppling, datumintervall, kontakt-snapshot, totalsummor och intern/extern kommentar.
+- `booking_items` ska finnas från första bokningsimplementationen även om Version 1 endast tillåter ett objekt per bokning i applikationsflödet.
+- Version 1 ska skapa exakt en `booking_items`-rad per bokningsförfrågan.
+- Flera objekt per bokning skjuts upp till senare sprint men blockeras inte av modellen.
+- `bookings.organization_id` ska alltid sättas från det bokade objektets organisation.
+- `booking_items.rental_item_id` ska alltid referera ett objekt inom samma organisation som bokningen.
+- `customers` används för kundrelationen när en kundrad skapas eller återanvänds, men bokningen ska även spara kontakt-snapshot så historik överlever ändrade kunduppgifter.
+- Gästbokning ska tillåtas i Version 1. Användarkonto ska inte krävas för publik bokningsförfrågan.
+
+Minsta kunddata för gästbokning:
+
+- namn
+- e-post
+- telefon
+- företag, valfritt
+- kommentar från kund, valfritt
+
+Kund- och GDPR-princip:
+
+- `bookings` eller `booking_customer_snapshots` ska spara de kontaktuppgifter som användes vid förfrågan.
+- `customers` representerar affärsrelationen och kan återanvändas för historik, admin och framtida kundportal.
+- `customer_users` används först när kundkonto/kundportal byggs.
+- Persondata ska minimeras till det som behövs för bokning, kontakt, avtal och eventuell fakturering.
+- Interna anteckningar ska separeras från kundens kommentar och får aldrig visas publikt.
+
+Datum- och tidsmodell:
+
+- Version 1 bokar per kalenderdag.
+- `start_date` och `end_date` ska lagras som `DATE`.
+- Intervallet är inklusivt: både startdatum och slutdatum räknas som hyrda dagar.
+- En bokning från 2026-08-10 till 2026-08-12 omfattar 3 hyresdagar.
+- Samma dag kan inte vara både slutdatum för en blockerande bokning och startdatum för en ny bokning för samma objekt.
+- Upphämtningstid, återlämningstid och deldagar ska kunna läggas till senare med separata DATETIME-fält eller utlämnings-/återlämningshändelser utan att ändra grundintervallets betydelse.
+- Alla tidsstämplar lagras i UTC. Kalenderdagar tolkas enligt verksamhetens svenska lokala tidszon om inget annat beslutas senare.
+
+Överlappsregel:
+
+- En ny bokning överlappar en befintlig blockerande bokning om `new_start_date <= existing_end_date` och `new_end_date >= existing_start_date`.
+- Eftersom intervallet är inklusivt blockerar även samma slut- och startdag.
+- Regeln ska tillämpas per `booking_items.rental_item_id`.
+
+Statusmodell för Version 1:
+
+- `request`: bokningsförfrågan mottagen och väntar på granskning.
+- `approved`: bokningen är manuellt godkänd och reserverar objektet.
+- `rejected`: förfrågan är nekad och blockerar inte kalendern.
+- `cancelled`: bokningen är avbokad och blockerar inte kalendern.
+- `active`: objektet är utlämnat eller uthyrningen pågår och blockerar kalendern.
+- `completed`: objektet är återlämnat/slutfört och blockerar inte framtida datum.
+
+Tillåtna statusövergångar:
+
+- `request` -> `approved`
+- `request` -> `rejected`
+- `request` -> `cancelled`
+- `approved` -> `active`
+- `approved` -> `cancelled`
+- `active` -> `completed`
+- `active` -> `cancelled` endast med administrativ orsak
+
+Blockerande statusar:
+
+- `request` ska blockera datum i Version 1 för att undvika att flera kunder får parallella förhoppningar om samma objekt.
+- `approved` blockerar datum.
+- `active` blockerar datum.
+- `rejected`, `cancelled` och `completed` blockerar inte nya bokningar.
+
+Tillgänglighet:
+
+Ett objekt anses bokningsbart när:
+
+- objektet är publicerat
+- objektet är aktivt
+- objektet är uthyrningsbart
+- objektet inte är arkiverat eller soft delete:at
+- objektets organisation är aktiv
+- objektets primära kategori är aktiv och giltig för organisationen
+- objektet har ett aktivt dagspris som inte är soft delete:at
+- önskat datumintervall inte överlappar en blockerande bokning
+- önskat datumintervall inte överlappar framtida service- eller blockeringsperiod när sådan funktion byggs
+
+Pris- och depositionssnapshot:
+
+- Bokningen ska spara priset som gällde när förfrågan skapades eller godkändes, så att prisändringar på objektet inte ändrar historiska bokningar.
+- Snapshot ska minst innehålla `rate_type`, `unit_price`, `currency`, antal kalenderdagar, `subtotal`, eventuell moms/VAT om projektets ekonomimodell kräver det, samt eventuell deposition.
+- Deposition ska sparas separat från hyrespriset.
+- Deposition får vara `NULL` eller `0` när objektet inte kräver deposition.
+- Ingen betalningsstatus eller betalningsintegration ingår i Sprint 5A.
+
+Rekommenderade relationer och index:
+
+- `bookings.organization_id` -> `organizations.id`
+- `bookings.customer_id` -> `customers.id` när kundrad finns.
+- `bookings.company_id` -> `companies.id` när bokningen görs för företag.
+- `booking_items.booking_id` -> `bookings.id`
+- `booking_items.rental_item_id` -> `rental_items.id`
+- `booking_status_history.booking_id` -> `bookings.id`
+- Index på `bookings(organization_id, status_key, start_date, end_date)`.
+- Index på `booking_items(rental_item_id, start_date, end_date)` eller motsvarande fältplacering när datummodellen implementeras.
+- Index på kundens e-post normaliserad i kund-/snapshotmodell där sökning krävs.
+
+Audit-händelser som ska designas för senare implementation:
+
+- `booking_created`
+- `booking_approved`
+- `booking_rejected`
+- `booking_cancelled`
+- `booking_started`
+- `booking_completed`
+
+Framtida utbyggnad:
+
+- Flera objekt per bokning i publikt flöde.
+- Kundkonto och kundportal.
+- Avtal och digital signering.
+- Betalning, deposition, Swish och Fortnox.
+- Leverans, upphämtningstider och återlämningstider.
+- Serviceblockeringar, manuella kalenderblockeringar och buffertdagar.
+
+Risker:
+
+- Om `request` blockerar kalendern kan en obesvarad förfrågan hålla objektet låst. Version 1 behöver därför adminrutiner för snabb godkänn/nekning och senare eventuell automatisk utgångstid.
+- Inklusiva kalenderdagar är enkla för användaren men hindrar byte samma dag. Det är ett medvetet säkerhetsval för att undvika dubbelbokning innan upphämtning/återlämning har tidsstöd.
+- Gästbokning förenklar MVP men kräver tydlig GDPR-retention och validering så att kunddata inte dupliceras okontrollerat.
+
 ### Kalender
 
 Tabeller:

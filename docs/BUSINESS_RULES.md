@@ -158,6 +158,52 @@ En bokning reserverar ett objekt under ett bestämt tidsintervall.
 
 En bokning får aldrig överlappa en annan godkänd bokning.
 
+Version 1 använder bokningsförfrågan som första publika bokningsflöde.
+
+Kunden ska kunna:
+
+- välja ett publicerat uthyrningsobjekt
+- välja startdatum
+- välja slutdatum
+- skicka en bokningsförfrågan
+- lämna namn, e-post och telefon
+- lämna företag och kommentar frivilligt
+- få bekräftelse på att förfrågan är mottagen
+
+Gästbokning ska tillåtas i Version 1. Användarkonto ska inte krävas för att skicka en bokningsförfrågan, eftersom ett enkelt MVP-flöde prioriteras. Kundkonto kan byggas senare och kopplas till befintliga kundrelationer.
+
+Bokningar sker per kalenderdag i Version 1.
+
+Datumregler:
+
+- `start_date` och `end_date` är kalenderdatum.
+- Startdatum och slutdatum är inklusiva.
+- Antal hyresdagar räknas inklusive både start- och slutdatum.
+- Samma datum får inte vara slutdatum för en blockerande bokning och startdatum för en ny bokning för samma objekt.
+- Upphämtningstid och återlämningstid hanteras inte i Version 1 men ska kunna byggas senare.
+
+Överlappsregel:
+
+En befintlig blockerande bokning krockar med en ny bokning om:
+
+```text
+new_start_date <= existing_end_date
+AND
+new_end_date >= existing_start_date
+```
+
+Ett objekt får bara bokas om:
+
+- objektet är publicerat
+- objektet är aktivt
+- objektet är uthyrningsbart
+- objektet inte är arkiverat
+- objektet inte är soft delete:at
+- objektet har aktiv primär kategori
+- objektet har aktivt dagspris
+- datumintervallet inte krockar med blockerande bokning
+- datumintervallet inte krockar med framtida service- eller kalenderblockering när dessa finns
+
 ---
 
 # Bokningsstatus
@@ -174,6 +220,48 @@ Version 1 använder:
 Historik ska sparas.
 
 Status ska aldrig skrivas över utan loggning.
+
+Statusnycklar i kod och databas ska vara:
+
+- `request`
+- `approved`
+- `rejected`
+- `cancelled`
+- `active`
+- `completed`
+
+Tillåtna statusövergångar:
+
+- `request` till `approved`
+- `request` till `rejected`
+- `request` till `cancelled`
+- `approved` till `active`
+- `approved` till `cancelled`
+- `active` till `completed`
+- `active` till `cancelled` endast med administrativ orsak
+
+Blockerar kalender:
+
+- `request`
+- `approved`
+- `active`
+
+Blockerar inte kalender:
+
+- `rejected`
+- `cancelled`
+- `completed`
+
+`request` blockerar kalendern i Version 1 för att undvika parallella förfrågningar på samma objekt och datum. Detta kan omprövas senare om systemet får automatisk köhantering eller utgångstid för förfrågningar.
+
+Följande bokningshändelser ska kunna audit-loggas när audit för bokningar implementeras:
+
+- `booking_created`
+- `booking_approved`
+- `booking_rejected`
+- `booking_cancelled`
+- `booking_started`
+- `booking_completed`
 
 ---
 
@@ -237,6 +325,18 @@ Exempel:
 
 Automatisk prissättning införs inte i Version 1.
 
+Bokningen ska spara en pris-snapshot så att historiska bokningar inte ändras när objektets pris ändras senare.
+
+Snapshot ska minst innehålla:
+
+- pristyp
+- pris per enhet/dag
+- valuta
+- antal kalenderdagar
+- delsumma
+- eventuell moms när ekonomimodellen kräver det
+- eventuell deposition
+
 ---
 
 # Deposition
@@ -244,6 +344,10 @@ Automatisk prissättning införs inte i Version 1.
 Objekt kan ha deposition.
 
 Deposition registreras separat från hyran.
+
+Deposition ska kopieras till bokningen som snapshot när bokningsförfrågan skapas eller godkänns.
+
+Deposition får vara tom eller 0 om objektet saknar deposition.
 
 Systemet ska kunna visa:
 

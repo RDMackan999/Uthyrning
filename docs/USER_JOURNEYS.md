@@ -48,6 +48,12 @@ Objektdetalj
     ↓
 Kontrollera kalender
     ↓
+Välj startdatum och slutdatum
+    ↓
+Fyll i kontaktuppgifter
+    ↓
+Granska förfrågan
+    ↓
 Skicka bokningsförfrågan
     ↓
 Bekräftelse
@@ -56,6 +62,7 @@ Bekräftelse
 ### Resultat
 
 - Kunden vet att förfrågan är mottagen.
+- Kunden förstår att bokningen väntar på manuell granskning.
 - Administratören får en notis.
 
 ---
@@ -71,15 +78,16 @@ Bokningar
     ↓
 Kontrollera tillgänglighet
     ↓
-Godkänn
+Godkänn eller neka
     ↓
 Skapa avtal
 ```
 
 ### Resultat
 
-- Bokningen blir aktiv.
-- Objektet reserveras.
+- Godkänd bokning reserverar objektet.
+- Nekad bokning frigör datum.
+- Statushistorik sparas.
 
 ---
 
