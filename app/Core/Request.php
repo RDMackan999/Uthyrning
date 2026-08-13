@@ -85,11 +85,13 @@ final class Request
      */
     public function query(?string $key = null, mixed $default = null): mixed
     {
+        $query = $this->queryData();
+
         if ($key === null) {
-            return $this->query;
+            return $query;
         }
 
-        return $this->query[$key] ?? $default;
+        return $query[$key] ?? $default;
     }
 
     /**
@@ -174,5 +176,22 @@ final class Request
         }
 
         return $this->routeParams[$key] ?? $default;
+    }
+
+    /**
+     * Return explicit query data merged over the URI query string.
+     *
+     * @return array<string, mixed>
+     */
+    private function queryData(): array
+    {
+        $parsedQuery = [];
+        $queryString = parse_url($this->uri, PHP_URL_QUERY);
+
+        if (is_string($queryString) && $queryString !== '') {
+            parse_str($queryString, $parsedQuery);
+        }
+
+        return array_merge($parsedQuery, $this->query);
     }
 }
