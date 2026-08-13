@@ -209,11 +209,28 @@ Knapp:
 
 Användaren anger:
 
-- datum
+- startdatum
+- slutdatum
 - namn
 - telefon
 - e-post
+- företag, valfritt
 - kommentar
+
+Version 1 ska tillåta bokningsförfrågan utan användarkonto.
+
+Formuläret ska vara kopplat till ett publikt, bokningsbart objekt.
+
+Formuläret ska inte visa interna objekt-id:n, interna noteringar eller adminfält.
+
+Innan förfrågan skickas ska användaren kunna granska:
+
+- valt objekt
+- startdatum
+- slutdatum
+- antal kalenderdagar
+- pris-snapshot när prisvisning finns
+- eventuell deposition
 
 Knapp:
 
@@ -226,6 +243,8 @@ Knapp:
 Visar:
 
 "Bokningsförfrågan mottagen."
+
+Bekräftelsen ska vara tydlig med att förfrågan inte är slutgiltigt godkänd förrän administratören har granskat den.
 
 ---
 
@@ -358,19 +377,32 @@ Visar:
 - status
 - kund
 - objekt
+- startdatum
+- slutdatum
+- pris-snapshot
+- kundens kommentar
+- intern administratörsnotering
 
 Administratören kan:
 
 - godkänna
 - neka
 - avboka
+- markera som aktiv
+- markera som slutförd
+
+Endast administratör får ändra bokningsstatus i Version 1.
+
+Statusändringar som godkännande, nekande, avbokning, start och slutförande ska kräva en tydlig administrativ handling.
+
+Kundens kommentar och intern administratörsnotering ska visas separat. Intern notering får aldrig visas publikt.
 
 ---
 
 # Bokningsflöde
 
 ```
-Ny bokning
+Bokningsförfrågan
 
 ↓
 
@@ -378,7 +410,7 @@ Granska
 
 ↓
 
-Godkänn
+Godkänn / Neka
 
 ↓
 
@@ -400,6 +432,13 @@ Utlämning
 
 Slutförd
 ```
+
+Kalenderpåverkan:
+
+- Förfrågan reserverar datum preliminärt.
+- Godkänd bokning reserverar datum.
+- Aktiv bokning reserverar datum.
+- Nekad, avbokad och slutförd bokning frigör datum för framtida bokningar.
 
 ---
 

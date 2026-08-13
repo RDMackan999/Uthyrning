@@ -673,6 +673,54 @@ Kommande prissprint ska bygga adminflödet för att skapa och ändra priser utan
 
 ---
 
+# Beslut 0016
+
+## Datum
+
+2026-08-13
+
+## Status
+
+Accepted
+
+## Titel
+
+Bokningsmodell för Version 1
+
+## Beslut
+
+Version 1 använder `bookings` som bokningens huvudmodell och `booking_items` från start, även om applikationsflödet endast tillåter ett objekt per bokningsförfrågan.
+
+Gästbokning ska tillåtas i Version 1. Kund ska kunna skicka bokningsförfrågan utan användarkonto genom att lämna namn, e-post och telefon. Företag och kommentar är frivilliga.
+
+Bokningar sker per kalenderdag. `start_date` och `end_date` är inklusiva. Samma datum får inte vara både slutdatum för en blockerande bokning och startdatum för en ny bokning för samma objekt.
+
+Statusnycklarna för Version 1 är `request`, `approved`, `rejected`, `cancelled`, `active` och `completed`.
+
+Statusarna `request`, `approved` och `active` blockerar kalendern. `rejected`, `cancelled` och `completed` blockerar inte kalendern.
+
+Bokningen ska spara snapshot av kundkontakt, pris, antal dagar, valuta och eventuell deposition så att historiska bokningar kan förstås även om kund eller objekt ändras senare.
+
+Alla bokningar ska tillhöra samma `organization` som det bokade objektet.
+
+## Motivering
+
+Modellen håller MVP-flödet enkelt för kunden och administratören, samtidigt som den inte blockerar framtida paketbokningar, kundkonto, marknadsplats, avtal, betalning eller Fortnox/Swish.
+
+Att låta `request` blockera kalendern minskar risken för dubbelbokning och parallella kundlöften i en manuell Version 1-process.
+
+Inklusiva kalenderdagar är enkla att förstå för användaren och säkra innan upphämtning och återlämning får tidpunktsstöd.
+
+## Konsekvens
+
+Kommande bokningsimplementation ska följa `docs/DATABASE_DESIGN.md`, `docs/BUSINESS_RULES.md`, `docs/UI_FLOW.md` och `docs/USER_JOURNEYS.md`.
+
+Ingen bokningskod, migration, controller, route, kalender eller admin-CRUD ingår i detta beslut.
+
+Framtida sprintar behöver specificera eventuell automatisk utgångstid för obesvarade förfrågningar, serviceblockeringar, kundportal, betalstatus och avtal.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
