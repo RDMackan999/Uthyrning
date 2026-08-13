@@ -252,6 +252,46 @@ final class BookingRepository extends BaseRepository
     }
 
     /**
+     * Check that a customer belongs to one organization and is not soft-deleted.
+     */
+    public function customerBelongsToOrganization(int $customerId, int $organizationId): bool
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT COUNT(*)
+             FROM customers
+             WHERE id = :customer_id
+                AND organization_id = :organization_id
+                AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'customer_id' => $customerId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    /**
+     * Check that a company belongs to one organization and is not soft-deleted.
+     */
+    public function companyBelongsToOrganization(int $companyId, int $organizationId): bool
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT COUNT(*)
+             FROM companies
+             WHERE id = :company_id
+                AND organization_id = :organization_id
+                AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'company_id' => $companyId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows
      * @return Collection<Booking>
      */

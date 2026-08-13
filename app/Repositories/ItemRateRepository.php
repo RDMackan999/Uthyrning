@@ -135,6 +135,38 @@ final class ItemRateRepository extends BaseRepository
     }
 
     /**
+     * Find the active daily rate used for Version 1 booking pricing.
+     */
+    public function findActiveDailyForItem(int $organizationId, int $rentalItemId): ItemRate
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT item_rates.*
+             FROM item_rates
+             INNER JOIN rental_items ON rental_items.id = item_rates.rental_item_id
+             WHERE item_rates.rental_item_id = :rental_item_id
+                AND rental_items.organization_id = :organization_id
+                AND item_rates.rate_type = :rate_type
+                AND item_rates.is_active = 1
+                AND item_rates.deleted_at IS NULL
+                AND rental_items.deleted_at IS NULL
+             ORDER BY item_rates.id ASC
+             LIMIT 1'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $rentalItemId,
+            'rate_type' => 'daily',
+        ]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new ModelException('Active daily item rate not found.');
+        }
+
+        return new ItemRate($row);
+    }
+
+    /**
      * Check whether one rental item has an active, non-deleted daily rate.
      */
     public function hasActiveDailyRate(int $organizationId, int $rentalItemId): bool

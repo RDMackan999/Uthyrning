@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Core\Collection;
+use App\Core\BookingException;
 use App\Core\Config;
 use App\Core\Database;
 use App\Core\MigrationRunner;
@@ -24,6 +25,10 @@ use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
+use App\Services\BookingAvailabilityService;
+use App\Services\BookingPricingService;
+use App\Services\BookingService;
+use App\Services\BookingStatusService;
 use App\Services\RentalItemPublicationService;
 
 $basePath = dirname(__DIR__);
@@ -346,6 +351,10 @@ $rentalItemRepository = new RentalItemRepository();
 $itemRateRepository = new ItemRateRepository();
 $bookingRepository = new BookingRepository();
 $bookingItemRepository = new BookingItemRepository();
+$bookingAvailabilityService = new BookingAvailabilityService();
+$bookingPricingService = new BookingPricingService();
+$bookingService = new BookingService();
+$bookingStatusService = new BookingStatusService();
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
@@ -1947,6 +1956,482 @@ $runner->test('Booking repositories persist scoped guest/customer bookings, snap
 
         throw $exception;
     }
+});
+
+$runner->test('Booking services enforce availability, pricing snapshots, guest creation and audit', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService,
+    $bookingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Booking Service One ' . $suffix, 'booking-service-one-' . $suffix);
+        $organizationTwoId = createOrganization('Booking Service Two ' . $suffix, 'booking-service-two-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for booking service tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            int $organizationId,
+            string $slug,
+            string $dailyRate = '450.00',
+            string $deposit = '500.00'
+        ) use ($rentalItemRepository, $itemRateRepository, $categoryId): RentalItem {
+            $item = $rentalItemRepository->create([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => 'Bookable ' . $slug,
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+                'deposit_amount' => $deposit,
+            ]);
+
+            $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => $dailyRate,
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]);
+
+            return $item;
+        };
+
+        $item = $createItem($organizationOneId, 'booking-service-main-' . $suffix);
+        $itemId = (int) $item->toArray()['id'];
+        $pricing = $bookingPricingService->calculateDailySnapshot(
+            $organizationOneId,
+            $item,
+            '2026-12-01',
+            '2026-12-01'
+        );
+        assertSame(1, $pricing['number_of_units'], 'Same-day booking should price as one day.');
+        assertSame('450.00', $pricing['subtotal_amount'], 'Same-day subtotal should match one daily rate.');
+        assertSame('500.00', $pricing['deposit_amount'], 'Deposit should be snapshotted separately.');
+
+        $booking = $bookingService->createRequest([
+            'organization_id' => $organizationOneId,
+            'rental_item_id' => $itemId,
+            'start_date' => '2026-12-10',
+            'end_date' => '2026-12-12',
+            'customer_name' => 'Guest Booking',
+            'customer_email' => 'Guest.Booking@Example.COM',
+            'customer_phone' => '070-111 22 33',
+            'company_name' => 'Guest Booking AB',
+            'customer_comment' => 'Please confirm pickup time.',
+            'internal_note' => 'Internal notes are not audit context.',
+        ]);
+        $bookingData = $booking->toArray();
+        $bookingId = (int) $bookingData['id'];
+        assertSame('request', $bookingData['status_key'] ?? null, 'Booking service should create request status.');
+        assertSame('3', (string) ($bookingData['total_units'] ?? ''), 'Booking service should persist inclusive day count.');
+        assertSame('1350.00', $bookingData['subtotal_amount'] ?? null, 'Booking service should persist calculated subtotal.');
+        assertSame('500.00', $bookingData['deposit_amount'] ?? null, 'Booking service should persist deposit snapshot.');
+
+        $snapshotStatement = $pdo->prepare(
+            'SELECT customer_name, customer_email_normalized, customer_phone, company_name
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshotStatement->execute(['booking_id' => $bookingId]);
+        $customerSnapshot = $snapshotStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame('Guest Booking', $customerSnapshot['customer_name'] ?? null, 'Guest booking should store customer snapshot.');
+        assertSame('guest.booking@example.com', $customerSnapshot['customer_email_normalized'] ?? null, 'Guest email should be normalized.');
+        assertSame('070-111 22 33', $customerSnapshot['customer_phone'] ?? null, 'Guest phone should be snapshotted.');
+        assertSame('Guest Booking AB', $customerSnapshot['company_name'] ?? null, 'Optional company name should be snapshotted.');
+
+        $priceStatement = $pdo->prepare(
+            'SELECT booking_items.id AS booking_item_id,
+                booking_items.unit_price AS booking_item_price,
+                booking_price_snapshots.unit_price AS snapshot_price,
+                booking_price_snapshots.number_of_units,
+                booking_price_snapshots.subtotal_amount,
+                booking_price_snapshots.deposit_amount
+             FROM booking_items
+             INNER JOIN booking_price_snapshots
+                ON booking_price_snapshots.booking_item_id = booking_items.id
+             WHERE booking_items.booking_id = :booking_id
+             LIMIT 1'
+        );
+        $priceStatement->execute(['booking_id' => $bookingId]);
+        $priceSnapshot = $priceStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame('450.00', $priceSnapshot['booking_item_price'] ?? null, 'Booking item should store unit price snapshot.');
+        assertSame('450.00', $priceSnapshot['snapshot_price'] ?? null, 'Price snapshot should store unit price.');
+        assertSame('3', (string) ($priceSnapshot['number_of_units'] ?? ''), 'Price snapshot should store charged days.');
+        assertSame('1350.00', $priceSnapshot['subtotal_amount'] ?? null, 'Price snapshot should store subtotal.');
+        assertSame('500.00', $priceSnapshot['deposit_amount'] ?? null, 'Price snapshot should store deposit.');
+
+        $activeRates = $itemRateRepository->findActiveForItem($organizationOneId, $itemId)->toArray();
+        $itemRateRepository->update((int) ($activeRates[0]['id'] ?? 0), ['amount' => '999.00'], $organizationOneId);
+        $priceStatement->execute(['booking_id' => $bookingId]);
+        $stablePriceSnapshot = $priceStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame('450.00', $stablePriceSnapshot['booking_item_price'] ?? null, 'Changed item rate should not alter booking item snapshot.');
+        assertSame('450.00', $stablePriceSnapshot['snapshot_price'] ?? null, 'Changed item rate should not alter price snapshot.');
+
+        assertTrue(
+            $bookingAvailabilityService->hasBlockingBookings($organizationOneId, $itemId, '2026-12-12', '2026-12-13'),
+            'Request booking should block inclusive overlapping dates.'
+        );
+        assertFalse(
+            $bookingAvailabilityService->hasBlockingBookings($organizationOneId, $itemId, '2026-12-13', '2026-12-14'),
+            'Non-overlapping dates should remain available.'
+        );
+        assertThrows(
+            static fn () => $bookingAvailabilityService->assertAvailable(
+                $organizationOneId,
+                $itemId,
+                '2026-12-12',
+                '2026-12-13'
+            ),
+            BookingException::class,
+            'assertAvailable should reject blocking overlap.'
+        );
+        assertThrows(
+            static fn () => $bookingAvailabilityService->isAvailable(
+                $organizationOneId,
+                $itemId,
+                '2026-12-31',
+                '2026-12-30'
+            ),
+            BookingException::class,
+            'Invalid interval should be rejected.'
+        );
+
+        assertThrows(
+            static fn () => $bookingService->createRequest([
+                'organization_id' => $organizationTwoId,
+                'rental_item_id' => $itemId,
+                'start_date' => '2027-01-10',
+                'end_date' => '2027-01-11',
+                'customer_name' => 'Wrong Org',
+                'customer_email' => 'wrong-org@example.com',
+                'customer_phone' => '070-222 33 44',
+            ]),
+            BookingException::class,
+            'Organization scope should not be bypassable.'
+        );
+
+        $auditStatement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id'
+        );
+        $auditStatement->execute([
+            'event_name' => 'booking_created',
+            'subject_type' => 'booking',
+            'subject_id' => $bookingId,
+        ]);
+        assertSame(1, (int) $auditStatement->fetchColumn(), 'booking_created audit event should be recorded.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('Booking availability service blocks only Version 1 blocking statuses', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Booking Status Availability ' . $suffix, 'booking-status-availability-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for status availability tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            string $slug
+        ) use ($rentalItemRepository, $itemRateRepository, $organizationId, $categoryId): RentalItem {
+            $item = $rentalItemRepository->create([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => 'Status Item ' . $slug,
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+            ]);
+            $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '100.00',
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]);
+
+            return $item;
+        };
+
+        $createBookingForStatus = static function (
+            RentalItem $item,
+            string $statusKey
+        ) use ($organizationId, $bookingRepository, $bookingItemRepository): int {
+            $booking = $bookingRepository->create([
+                'organization_id' => $organizationId,
+                'start_date' => '2027-02-10',
+                'end_date' => '2027-02-12',
+                'customer_name' => 'Status Customer',
+                'customer_email' => 'status-customer@example.com',
+                'customer_phone' => '070-333 44 55',
+            ]);
+            $bookingId = (int) $booking->toArray()['id'];
+            $bookingItemRepository->create([
+                'organization_id' => $organizationId,
+                'booking_id' => $bookingId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'unit_price' => '100.00',
+                'currency' => 'SEK',
+                'quantity' => 1,
+                'number_of_units' => 3,
+                'subtotal_amount' => '300.00',
+            ]);
+
+            if ($statusKey !== 'request') {
+                $bookingRepository->updateStatus($organizationId, $bookingId, $statusKey);
+            }
+
+            return $bookingId;
+        };
+
+        foreach (['request', 'approved', 'active'] as $statusKey) {
+            $item = $createItem('blocking-' . $statusKey . '-' . $suffix);
+            $createBookingForStatus($item, $statusKey);
+            assertFalse(
+                $bookingAvailabilityService->isAvailable(
+                    $organizationId,
+                    (int) $item->toArray()['id'],
+                    '2027-02-11',
+                    '2027-02-13'
+                ),
+                $statusKey . ' should block overlapping dates.'
+            );
+        }
+
+        foreach (['rejected', 'cancelled', 'completed'] as $statusKey) {
+            $item = $createItem('nonblocking-' . $statusKey . '-' . $suffix);
+            $createBookingForStatus($item, $statusKey);
+            assertTrue(
+                $bookingAvailabilityService->isAvailable(
+                    $organizationId,
+                    (int) $item->toArray()['id'],
+                    '2027-02-11',
+                    '2027-02-13'
+                ),
+                $statusKey . ' should not block overlapping dates.'
+            );
+        }
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('Booking status service enforces transitions, history and audit events', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingService,
+    $bookingStatusService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Booking Transition ' . $suffix, 'booking-transition-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for transition tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = $rentalItemRepository->create([
+            'organization_id' => $organizationId,
+            'primary_category_id' => $categoryId,
+            'slug' => 'transition-item-' . $suffix,
+            'name' => 'Transition Item ' . $suffix,
+            'publication_status_key' => 'published',
+            'is_active' => true,
+            'is_rentable' => true,
+        ]);
+        $itemRateRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'rate_type' => 'daily',
+            'amount' => '250.00',
+            'currency' => 'SEK',
+            'is_active' => true,
+        ]);
+
+        $booking = $bookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2027-03-01',
+            'end_date' => '2027-03-02',
+            'customer_name' => 'Transition Guest',
+            'customer_email' => 'transition@example.com',
+            'customer_phone' => '070-444 55 66',
+        ]);
+        $bookingId = (int) $booking->toArray()['id'];
+
+        $historyCount = static function (int $bookingId): int {
+            $statement = pdo()->prepare('SELECT COUNT(*) FROM booking_status_history WHERE booking_id = :booking_id');
+            $statement->execute(['booking_id' => $bookingId]);
+
+            return (int) $statement->fetchColumn();
+        };
+
+        assertSame(1, $historyCount($bookingId), 'Initial status history should be created.');
+        assertTrue($bookingStatusService->canTransition('request', 'approved'), 'request to approved should be allowed.');
+        assertFalse($bookingStatusService->canTransition('request', 'active'), 'request to active should be rejected.');
+
+        $approved = $bookingStatusService->transition($organizationId, $bookingId, 'approved');
+        assertSame('approved', $approved->toArray()['status_key'] ?? null, 'Booking should transition to approved.');
+        assertSame(2, $historyCount($bookingId), 'Approved transition should append status history.');
+
+        assertThrows(
+            static fn () => $bookingStatusService->transition($organizationId, $bookingId, 'completed'),
+            BookingException::class,
+            'approved to completed should be rejected.'
+        );
+        assertSame(2, $historyCount($bookingId), 'Rejected transition should not append status history.');
+
+        $active = $bookingStatusService->transition($organizationId, $bookingId, 'active');
+        assertSame('active', $active->toArray()['status_key'] ?? null, 'Booking should transition to active.');
+        assertSame(3, $historyCount($bookingId), 'Active transition should append status history.');
+        assertFalse($bookingStatusService->canTransition('active', 'cancelled'), 'Active cancellation should require administrative reason.');
+
+        $completed = $bookingStatusService->transition($organizationId, $bookingId, 'completed');
+        assertSame('completed', $completed->toArray()['status_key'] ?? null, 'Booking should transition to completed.');
+        assertSame(4, $historyCount($bookingId), 'Completed transition should append status history.');
+
+        $auditStatement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id'
+        );
+
+        foreach (['booking_created', 'booking_approved', 'booking_started', 'booking_completed'] as $eventName) {
+            $auditStatement->execute([
+                'event_name' => $eventName,
+                'subject_type' => 'booking',
+                'subject_id' => $bookingId,
+            ]);
+            assertSame(1, (int) $auditStatement->fetchColumn(), $eventName . ' audit event should be recorded.');
+        }
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('Booking service rolls back partial writes on transaction error', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $organizationId = createOrganization('Booking Rollback ' . $suffix, 'booking-rollback-' . $suffix);
+    $globalCategory = $repository->findBySlug('verktyg');
+    assertNotNull($globalCategory, 'Global category should exist for rollback tests.');
+    $categoryId = (int) $globalCategory->toArray()['id'];
+    $item = $rentalItemRepository->create([
+        'organization_id' => $organizationId,
+        'primary_category_id' => $categoryId,
+        'slug' => 'rollback-item-' . $suffix,
+        'name' => 'Rollback Item ' . $suffix,
+        'publication_status_key' => 'published',
+        'is_active' => true,
+        'is_rentable' => true,
+    ]);
+    $itemRateRepository->create([
+        'organization_id' => $organizationId,
+        'rental_item_id' => (int) $item->toArray()['id'],
+        'rate_type' => 'daily',
+        'amount' => '175.00',
+        'currency' => 'SEK',
+        'is_active' => true,
+    ]);
+
+    $countForOrganization = static function (string $table, int $organizationId): int {
+        $statement = pdo()->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE organization_id = :organization_id');
+        $statement->execute(['organization_id' => $organizationId]);
+
+        return (int) $statement->fetchColumn();
+    };
+
+    $bookingCountBefore = $countForOrganization('bookings', $organizationId);
+    $snapshotCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM booking_customer_snapshots')->fetchColumn();
+
+    assertThrows(
+        static fn () => $bookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2027-04-01',
+            'end_date' => '2027-04-02',
+            'customer_name' => 'Rollback Guest',
+            'customer_email' => 'rollback@example.com',
+            'customer_phone' => '070-555 66 77',
+            'changed_by_user_id' => 999999999,
+        ]),
+        Throwable::class,
+        'Invalid changed_by_user_id should trigger a transactional write error.'
+    );
+
+    assertSame($bookingCountBefore, $countForOrganization('bookings', $organizationId), 'Failed booking request should roll back booking row.');
+    assertSame(
+        $snapshotCountBefore,
+        (int) $pdo->query('SELECT COUNT(*) FROM booking_customer_snapshots')->fetchColumn(),
+        'Failed booking request should roll back customer snapshot row.'
+    );
 });
 
 exit($runner->finish());
