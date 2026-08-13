@@ -139,6 +139,22 @@ final class BookingService
     }
 
     /**
+     * Return public-safe confirmation data for a submitted booking request.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function publicConfirmation(string $publicId): ?array
+    {
+        $normalized = trim($publicId);
+
+        if ($normalized === '' || strlen($normalized) > 80 || !preg_match('/^[A-Za-z0-9_-]+$/', $normalized)) {
+            return null;
+        }
+
+        return $this->bookingRepository->findPublicConfirmationByPublicId($normalized);
+    }
+
+    /**
      * @param array<string, mixed> $data
      */
     private function validateCustomerAndCompanyScope(array $data, int $organizationId): void

@@ -57,6 +57,10 @@ if (is_file($autoloadPath)) {
 Config::load($basePath);
 date_default_timezone_set((string) Config::get('app.timezone', 'Europe/Stockholm'));
 
+if (ob_get_level() === 0) {
+    ob_start();
+}
+
 final class TestRunner
 {
     private int $passed = 0;
@@ -270,6 +274,28 @@ function createCustomer(int $organizationId, string $name, string $email): int
     ]);
 
     return (int) pdo()->lastInsertId();
+}
+
+function requestWithValidCsrf(string $method, string $uri, array $post = []): Request
+{
+    $csrfId = bin2hex(random_bytes(16));
+    $token = bin2hex(random_bytes(32));
+    $directory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'sessions' . DIRECTORY_SEPARATOR . 'csrf';
+
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    file_put_contents($directory . DIRECTORY_SEPARATOR . $csrfId . '.json', json_encode([
+        'token_hash' => hash('sha256', $token),
+        'expires_at' => time() + 1800,
+    ], JSON_THROW_ON_ERROR), LOCK_EX);
+
+    return new Request($method, $uri, [], array_merge($post, [
+        'csrf_token' => $token,
+    ]), [
+        'uthyrning_csrf' => $csrfId,
+    ]);
 }
 
 function collectionContainsSlug(Collection $collection, string $slug): bool
@@ -2432,6 +2458,247 @@ $runner->test('Booking service rolls back partial writes on transaction error', 
         (int) $pdo->query('SELECT COUNT(*) FROM booking_customer_snapshots')->fetchColumn(),
         'Failed booking request should roll back customer snapshot row.'
     );
+});
+
+$runner->test('public booking request flow validates input, creates snapshots and shows safe confirmation', static function () use (
+    $basePath,
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Public Booking Flow ' . $suffix, 'public-booking-flow-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for public booking tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            string $slug,
+            string $name,
+            array $overrides = []
+        ) use ($rentalItemRepository, $itemRateRepository, $organizationId, $categoryId): RentalItem {
+            $item = $rentalItemRepository->create(array_merge([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => $name,
+                'description' => 'Publik bokningsbeskrivning.',
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+                'deposit_amount' => '300.00',
+            ], $overrides));
+
+            $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '250.00',
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]);
+
+            return $item;
+        };
+
+        $bookableItem = $createItem('public-booking-main-' . $suffix, 'Public Booking Main ' . $suffix);
+        $draftItem = $createItem('public-booking-draft-' . $suffix, 'Public Booking Draft ' . $suffix, [
+            'publication_status_key' => 'draft',
+        ]);
+        $archivedItem = $createItem('public-booking-archived-' . $suffix, 'Public Booking Archived ' . $suffix, [
+            'publication_status_key' => 'archived',
+        ]);
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $itemData = $bookableItem->toArray();
+        $detailPath = '/items/' . rawurlencode((string) $itemData['public_id']) . '/' . rawurlencode((string) $itemData['slug']);
+        $bookPath = $detailPath . '/book';
+        $validPost = [
+            'start_date' => '2027-05-10',
+            'end_date' => '2027-05-12',
+            'customer_name' => 'Public Guest',
+            'customer_email' => 'Public.Guest@Example.COM',
+            'customer_phone' => '070-111 22 33',
+            'company_name' => 'Public Guest AB',
+            'customer_comment' => 'Jag vill gärna hämta på morgonen.',
+            'organization_id' => '999999',
+            'unit_price' => '1.00',
+            'currency' => 'EUR',
+            'deposit_amount' => '0.00',
+            'status_key' => 'approved',
+        ];
+
+        $detailResponse = $router->dispatch(new Request('GET', $detailPath));
+        assertSame(200, $detailResponse->statusCode(), 'Bookable item detail should return 200.');
+        assertTrue(str_contains($detailResponse->content(), 'Boka objekt'), 'Bookable item detail should show booking CTA.');
+        assertTrue(str_contains($detailResponse->content(), $bookPath), 'Booking CTA should link to booking form.');
+
+        foreach ([$draftItem, $archivedItem] as $hiddenItem) {
+            $hiddenData = $hiddenItem->toArray();
+            $hiddenDetailPath = '/items/' . rawurlencode((string) $hiddenData['public_id']) . '/' . rawurlencode((string) $hiddenData['slug']);
+            assertSame(404, $router->dispatch(new Request('GET', $hiddenDetailPath))->statusCode(), 'Non-public item detail should return 404.');
+            assertSame(404, $router->dispatch(new Request('GET', $hiddenDetailPath . '/book'))->statusCode(), 'Non-public booking route should return 404.');
+        }
+
+        $formResponse = $router->dispatch(new Request('GET', $bookPath));
+        assertSame(200, $formResponse->statusCode(), 'Booking form should be public without login.');
+        assertTrue(str_contains($formResponse->content(), 'Skicka f&ouml;rfr&aring;gan'), 'Booking form should render submit action.');
+        assertTrue(str_contains($formResponse->content(), 'csrf_token'), 'Booking form should include CSRF token.');
+        assertFalse(str_contains($formResponse->content(), 'organization_id'), 'Booking form should not expose organization input.');
+        assertFalse(str_contains($formResponse->content(), 'unit_price'), 'Booking form should not expose price input.');
+        assertFalse(str_contains($formResponse->content(), 'status_key'), 'Booking form should not expose status input.');
+
+        $missingCsrfResponse = $router->dispatch(new Request('POST', $bookPath, [], $validPost));
+        assertSame(200, $missingCsrfResponse->statusCode(), 'Missing CSRF should render form with safe error.');
+        assertTrue(
+            str_contains($missingCsrfResponse->content(), 'Formuläret kunde inte verifieras.')
+            || str_contains($missingCsrfResponse->content(), 'Formul&auml;ret kunde inte verifieras.'),
+            'Missing CSRF should show verification error.'
+        );
+
+        $validationCases = [
+            'missing name' => array_merge($validPost, ['customer_name' => '']),
+            'invalid email' => array_merge($validPost, ['customer_email' => 'not-an-email']),
+            'missing start date' => array_merge($validPost, ['start_date' => '']),
+            'missing end date' => array_merge($validPost, ['end_date' => '']),
+            'start after end' => array_merge($validPost, ['start_date' => '2027-05-13', 'end_date' => '2027-05-12']),
+        ];
+
+        foreach ($validationCases as $case => $post) {
+            $response = $router->dispatch(requestWithValidCsrf('POST', $bookPath, $post));
+            assertSame(200, $response->statusCode(), $case . ' should render form with validation errors.');
+            assertTrue(str_contains($response->content(), 'public-field-error'), $case . ' should show a field validation error.');
+        }
+
+        $bookingCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn();
+        $response = $router->dispatch(requestWithValidCsrf('POST', $bookPath, $validPost));
+        assertSame(302, $response->statusCode(), 'Successful booking should redirect.');
+        $location = $response->headers()['Location'] ?? '';
+        assertTrue(is_string($location) && str_starts_with($location, '/bookings/'), 'Successful booking should redirect to confirmation route.');
+        assertTrue(str_ends_with((string) $location, '/confirmation'), 'Successful booking should use confirmation suffix.');
+
+        $publicId = trim(str_replace(['/bookings/', '/confirmation'], '', (string) $location), '/');
+        assertTrue(str_starts_with($publicId, 'bkg_'), 'Confirmation route should use booking public id.');
+
+        $bookingStatement = $pdo->prepare('SELECT * FROM bookings WHERE public_id = :public_id LIMIT 1');
+        $bookingStatement->execute(['public_id' => $publicId]);
+        $booking = $bookingStatement->fetch(PDO::FETCH_ASSOC);
+        assertTrue(is_array($booking), 'Booking should be stored after successful request.');
+        $bookingId = (int) ($booking['id'] ?? 0);
+        assertSame('request', $booking['status_key'] ?? null, 'Public booking should start as request.');
+        assertSame($organizationId, (int) ($booking['organization_id'] ?? 0), 'Booking organization should come from rental item.');
+        assertSame('3', (string) ($booking['total_units'] ?? ''), 'Booking should store inclusive day count.');
+        assertSame('750.00', $booking['subtotal_amount'] ?? null, 'Booking price should come from server-side daily rate.');
+        assertSame('300.00', $booking['deposit_amount'] ?? null, 'Booking deposit should come from rental item.');
+        assertSame('SEK', $booking['currency'] ?? null, 'Booking currency should come from server-side rate.');
+
+        $snapshotStatement = $pdo->prepare(
+            'SELECT customer_name, customer_email_normalized, customer_phone, company_name
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshotStatement->execute(['booking_id' => $bookingId]);
+        $customerSnapshot = $snapshotStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame('Public Guest', $customerSnapshot['customer_name'] ?? null, 'Customer snapshot should store guest name.');
+        assertSame('public.guest@example.com', $customerSnapshot['customer_email_normalized'] ?? null, 'Customer snapshot should normalize email.');
+        assertSame('070-111 22 33', $customerSnapshot['customer_phone'] ?? null, 'Customer snapshot should store phone.');
+        assertSame('Public Guest AB', $customerSnapshot['company_name'] ?? null, 'Customer snapshot should store optional company.');
+
+        $priceSnapshotStatement = $pdo->prepare(
+            'SELECT unit_price, currency, number_of_units, subtotal_amount, deposit_amount
+             FROM booking_price_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $priceSnapshotStatement->execute(['booking_id' => $bookingId]);
+        $priceSnapshot = $priceSnapshotStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame('250.00', $priceSnapshot['unit_price'] ?? null, 'Price snapshot should ignore manipulated price input.');
+        assertSame('SEK', $priceSnapshot['currency'] ?? null, 'Price snapshot should ignore manipulated currency input.');
+        assertSame('3', (string) ($priceSnapshot['number_of_units'] ?? ''), 'Price snapshot should store inclusive days.');
+        assertSame('750.00', $priceSnapshot['subtotal_amount'] ?? null, 'Price snapshot should store subtotal.');
+        assertSame('300.00', $priceSnapshot['deposit_amount'] ?? null, 'Price snapshot should store deposit.');
+
+        $auditStatement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id'
+        );
+        $auditStatement->execute([
+            'event_name' => 'booking_created',
+            'subject_type' => 'booking',
+            'subject_id' => $bookingId,
+        ]);
+        assertSame(1, (int) $auditStatement->fetchColumn(), 'booking_created audit event should be recorded.');
+
+        $overlapCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn();
+        $overlapResponse = $router->dispatch(requestWithValidCsrf('POST', $bookPath, array_merge($validPost, [
+            'customer_email' => 'second@example.com',
+            'start_date' => '2027-05-12',
+            'end_date' => '2027-05-13',
+        ])));
+        assertSame(200, $overlapResponse->statusCode(), 'Overlapping booking should render form with safe error.');
+        assertTrue(
+            str_contains($overlapResponse->content(), 'inte tillgängligt')
+            || str_contains($overlapResponse->content(), 'inte tillg&auml;ngligt'),
+            'Overlapping booking should show unavailable message.'
+        );
+        assertSame($overlapCountBefore, (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn(), 'Overlapping booking should not create partial booking.');
+
+        $confirmationResponse = $router->dispatch(new Request('GET', (string) $location));
+        assertSame(200, $confirmationResponse->statusCode(), 'Confirmation should return 200 for public booking reference.');
+        $confirmationContent = $confirmationResponse->content();
+        assertTrue(str_contains($confirmationContent, 'Bokningsf&ouml;rfr&aringgan mottagen'), 'Confirmation should show received message.');
+        assertTrue(str_contains($confirmationContent, $publicId), 'Confirmation should show public booking reference.');
+        assertTrue(str_contains($confirmationContent, 'Public Booking Main ' . $suffix), 'Confirmation should show item name.');
+        assertTrue(str_contains($confirmationContent, '2027-05-10'), 'Confirmation should show start date.');
+        assertTrue(str_contains($confirmationContent, '2027-05-12'), 'Confirmation should show end date.');
+        assertTrue(str_contains($confirmationContent, '750 SEK'), 'Confirmation should show price snapshot.');
+        assertFalse(str_contains($confirmationContent, (string) $bookingId . '</span>'), 'Confirmation should not expose technical booking id.');
+        assertFalse(str_contains($confirmationContent, 'Public.Guest@Example.COM'), 'Confirmation should not expose submitted customer email.');
+
+        $safeConfirmationHtml = (new View())->render('public/bookings/confirmation', [
+            'booking' => [
+                'id' => '999999',
+                'public_id' => 'bkg_public_only',
+                'rental_item_name' => 'Safe Item',
+                'start_date' => '2027-05-10',
+                'end_date' => '2027-05-12',
+                'total_units' => 3,
+                'subtotal_amount' => '750.00',
+                'deposit_amount' => '300.00',
+                'currency' => 'SEK',
+                'internal_note' => 'Hemlig intern anteckning',
+                'customer_email' => 'secret@example.com',
+            ],
+        ]);
+        assertFalse(str_contains($safeConfirmationHtml, '999999'), 'Confirmation view should not render injected technical id.');
+        assertFalse(str_contains($safeConfirmationHtml, 'Hemlig intern anteckning'), 'Confirmation view should not render internal notes.');
+        assertFalse(str_contains($safeConfirmationHtml, 'secret@example.com'), 'Confirmation view should not render customer email.');
+
+        assertSame(404, $router->dispatch(new Request('GET', '/bookings/bkg_missing_' . $suffix . '/confirmation'))->statusCode(), 'Unknown confirmation reference should return safe 404.');
+        assertTrue((int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn() > $bookingCountBefore, 'Successful booking should be the only new booking in this flow.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
 });
 
 exit($runner->finish());

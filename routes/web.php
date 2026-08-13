@@ -6,6 +6,7 @@ use App\Controllers\AdminDashboardController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
+use App\Controllers\PublicBookingController;
 use App\Controllers\PublicRentalItemController;
 use App\Controllers\RentalItemController;
 use App\Core\Config;
@@ -18,6 +19,7 @@ use App\Middleware\AuthorizationMiddleware;
 return static function (Router $router): void {
     $authController = new AuthController();
     $adminDashboardController = AdminDashboardController::fromConfig();
+    $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
     $rentalItemController = RentalItemController::fromConfig();
     $itemRateController = ItemRateController::fromConfig();
@@ -32,6 +34,18 @@ return static function (Router $router): void {
     $router->get(
         '/items/{public_id}/{slug}',
         static fn (Request $request): Response => $publicRentalItemController->show($request)
+    );
+    $router->get(
+        '/items/{public_id}/{slug}/book',
+        static fn (Request $request): Response => $publicBookingController->create($request)
+    );
+    $router->post(
+        '/items/{public_id}/{slug}/book',
+        static fn (Request $request): Response => $publicBookingController->store($request)
+    );
+    $router->get(
+        '/bookings/{public_id}/confirmation',
+        static fn (Request $request): Response => $publicBookingController->confirmation($request)
     );
 
     $router->get('/login', static fn (Request $request): Response => $authController->showLogin($request));

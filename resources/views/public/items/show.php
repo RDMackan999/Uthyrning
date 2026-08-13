@@ -24,6 +24,11 @@ $dailyRate = $formatAmount($item['daily_rate_amount'] ?? null) . ' ' . $dailyRat
 $depositAmount = $item['deposit_amount'] ?? null;
 $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
 $deposit = $hasDeposit ? $formatAmount($depositAmount) . ' ' . $dailyRateCurrency : '';
+$publicId = $stringValue($item['public_id'] ?? '');
+$slug = $stringValue($item['slug'] ?? '');
+$bookingUrl = $publicId !== '' && $slug !== ''
+    ? '/items/' . rawurlencode($publicId) . '/' . rawurlencode($slug) . '/book'
+    : '';
 ?>
 <section>
     <p class="public-back-link"><a href="/items">Tillbaka till objekt</a></p>
@@ -63,6 +68,10 @@ $deposit = $hasDeposit ? $formatAmount($depositAmount) . ' ' . $dailyRateCurrenc
                     <p class="public-detail-deposit">
                         Deposition: <?= $escape($deposit) ?>
                     </p>
+                <?php endif; ?>
+
+                <?php if ($bookingUrl !== ''): ?>
+                    <a class="public-primary-link" href="<?= $escape($bookingUrl) ?>">Boka objekt</a>
                 <?php endif; ?>
             </aside>
         </div>
