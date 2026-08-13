@@ -185,6 +185,56 @@ final class RentalItemRepository extends BaseRepository
     }
 
     /**
+     * Find one item that is bookable under the same Version 1 publication rules.
+     */
+    public function findBookableForBooking(int $organizationId, int $rentalItemId): RentalItem
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT rental_items.*
+             FROM rental_items
+             INNER JOIN organizations
+                ON organizations.id = rental_items.organization_id
+                AND organizations.status_key = :organization_status
+                AND organizations.deleted_at IS NULL
+             INNER JOIN item_categories
+                ON item_categories.id = rental_items.primary_category_id
+                AND item_categories.is_active = 1
+                AND item_categories.deleted_at IS NULL
+                AND (
+                    item_categories.organization_id IS NULL
+                    OR item_categories.organization_id = rental_items.organization_id
+                )
+             INNER JOIN item_rates AS daily_rates
+                ON daily_rates.rental_item_id = rental_items.id
+                AND daily_rates.rate_type = :daily_rate_type
+                AND daily_rates.is_active = 1
+                AND daily_rates.deleted_at IS NULL
+             WHERE rental_items.id = :rental_item_id
+                AND rental_items.organization_id = :organization_id
+                AND rental_items.publication_status_key = :publication_status
+                AND rental_items.is_active = 1
+                AND rental_items.is_rentable = 1
+                AND rental_items.deleted_at IS NULL
+             ORDER BY daily_rates.id ASC
+             LIMIT 1'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $rentalItemId,
+            'organization_status' => 'active',
+            'daily_rate_type' => 'daily',
+            'publication_status' => 'published',
+        ]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new ModelException('Rental item is not bookable.');
+        }
+
+        return new RentalItem($row);
+    }
+
+    /**
      * Create a rental item foundation record.
      *
      * @param array<string, mixed> $data
