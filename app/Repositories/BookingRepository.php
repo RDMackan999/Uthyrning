@@ -292,6 +292,39 @@ final class BookingRepository extends BaseRepository
     }
 
     /**
+     * Find public-safe confirmation data by non-sequential booking public id.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findPublicConfirmationByPublicId(string $publicId): ?array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT bookings.public_id,
+                bookings.start_date,
+                bookings.end_date,
+                bookings.currency,
+                bookings.total_units,
+                bookings.subtotal_amount,
+                bookings.deposit_amount,
+                rental_items.name AS rental_item_name
+             FROM bookings
+             INNER JOIN booking_items
+                ON booking_items.booking_id = bookings.id
+             INNER JOIN rental_items
+                ON rental_items.id = booking_items.rental_item_id
+             WHERE bookings.public_id = :public_id
+                AND bookings.deleted_at IS NULL
+             ORDER BY booking_items.id ASC
+             LIMIT 1'
+        );
+        $statement->execute(['public_id' => trim($publicId)]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows
      * @return Collection<Booking>
      */

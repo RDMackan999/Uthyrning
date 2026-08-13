@@ -132,12 +132,24 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding: 0.55rem 1rem;
         }
 
+        .public-primary-link,
         .public-filter-actions a,
         .public-detail-link {
             color: #172033;
             font-weight: 700;
             text-decoration-color: #8aa0bd;
             text-underline-offset: 0.18em;
+        }
+
+        .public-primary-link {
+            background: #172033;
+            border: 1px solid #172033;
+            border-radius: 6px;
+            color: #ffffff;
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.65rem 1rem;
+            text-decoration: none;
         }
 
         .public-filter-summary {
@@ -229,6 +241,109 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             margin: 0;
         }
 
+        .public-form {
+            background: #ffffff;
+            border: 1px solid #dce3ee;
+            border-radius: 8px;
+            display: grid;
+            gap: 1rem;
+            padding: 1.25rem;
+        }
+
+        .public-form-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .public-form-field {
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .public-form-field.full {
+            grid-column: 1 / -1;
+        }
+
+        .public-form-field label {
+            color: #526072;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .public-form-field input,
+        .public-form-field textarea {
+            border: 1px solid #b9c6d8;
+            border-radius: 6px;
+            color: #172033;
+            font: inherit;
+            min-height: 2.6rem;
+            padding: 0.55rem 0.65rem;
+        }
+
+        .public-form-field textarea {
+            min-height: 7rem;
+            resize: vertical;
+        }
+
+        .public-form-error,
+        .public-field-error {
+            color: #9f1d1d;
+        }
+
+        .public-form-error {
+            background: #fff4f4;
+            border: 1px solid #f1b7b7;
+            border-radius: 6px;
+            margin: 0;
+            padding: 0.75rem;
+        }
+
+        .public-field-error {
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .public-form-actions {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .public-form-actions button {
+            background: #172033;
+            border: 1px solid #172033;
+            border-radius: 6px;
+            color: #ffffff;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            min-height: 2.6rem;
+            padding: 0.65rem 1rem;
+        }
+
+        .public-summary-list {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1rem 0 0;
+        }
+
+        .public-summary-row {
+            display: flex;
+            gap: 1rem;
+            justify-content: space-between;
+        }
+
+        .public-summary-row span:first-child {
+            color: #526072;
+        }
+
+        .public-summary-row span:last-child {
+            font-weight: 700;
+            text-align: right;
+        }
+
         @media (max-width: 640px) {
             .public-header {
                 align-items: flex-start;
@@ -241,6 +356,10 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             }
 
             .public-detail-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .public-form-grid {
                 grid-template-columns: 1fr;
             }
         }
