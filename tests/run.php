@@ -14,9 +14,13 @@ use App\Core\SeederRunner;
 use App\Core\View;
 use App\Http\ItemRateFormRequest;
 use App\Http\RentalItemFormRequest;
+use App\Models\Booking;
+use App\Models\BookingItem;
 use App\Models\Category;
 use App\Models\ItemRate;
 use App\Models\RentalItem;
+use App\Repositories\BookingItemRepository;
+use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
@@ -188,6 +192,26 @@ function foreignKeyExists(string $table, string $referencedTable): bool
     return (int) $statement->fetchColumn() > 0;
 }
 
+function columnDataType(string $table, string $column): ?string
+{
+    $statement = pdo()->prepare(
+        'SELECT DATA_TYPE
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = :table
+            AND COLUMN_NAME = :column
+         LIMIT 1'
+    );
+    $statement->execute([
+        'table' => $table,
+        'column' => $column,
+    ]);
+
+    $type = $statement->fetchColumn();
+
+    return $type === false ? null : (string) $type;
+}
+
 function countRows(string $table): int
 {
     return (int) pdo()->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
@@ -202,6 +226,41 @@ function createOrganization(string $name, string $slug): int
     $statement->execute([
         'name' => $name,
         'slug' => $slug,
+        'status_key' => 'active',
+    ]);
+
+    return (int) pdo()->lastInsertId();
+}
+
+function createCustomer(int $organizationId, string $name, string $email): int
+{
+    $statement = pdo()->prepare(
+        'INSERT INTO customers (
+            organization_id,
+            customer_type_key,
+            name,
+            email,
+            email_normalized,
+            status_key,
+            created_at,
+            updated_at
+        ) VALUES (
+            :organization_id,
+            :customer_type_key,
+            :name,
+            :email,
+            :email_normalized,
+            :status_key,
+            UTC_TIMESTAMP(),
+            UTC_TIMESTAMP()
+        )'
+    );
+    $statement->execute([
+        'organization_id' => $organizationId,
+        'customer_type_key' => 'private',
+        'name' => $name,
+        'email' => $email,
+        'email_normalized' => strtolower(trim($email)),
         'status_key' => 'active',
     ]);
 
@@ -285,6 +344,8 @@ $seederRunner = new SeederRunner($basePath);
 $repository = new CategoryRepository();
 $rentalItemRepository = new RentalItemRepository();
 $itemRateRepository = new ItemRateRepository();
+$bookingRepository = new BookingRepository();
+$bookingItemRepository = new BookingItemRepository();
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
@@ -298,6 +359,22 @@ $runner->test('migrations create rental item foundation tables', static function
 
     assertTrue(tableExists('rental_items'), 'rental_items table should exist.');
     assertTrue(tableExists('item_rates'), 'item_rates table should exist.');
+});
+
+$runner->test('migrations create booking foundation tables', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    foreach ([
+        'booking_statuses',
+        'bookings',
+        'booking_items',
+        'booking_customer_snapshots',
+        'booking_price_snapshots',
+        'booking_status_history',
+        'booking_notes',
+    ] as $table) {
+        assertTrue(tableExists($table), $table . ' table should exist.');
+    }
 });
 
 $runner->test('item_categories has expected columns only for Sprint 3B', static function (): void {
@@ -411,6 +488,119 @@ $runner->test('rental item schema supports Sprint 4B foundation', static functio
     assertTrue(foreignKeyExists('rental_items', 'companies'), 'rental_items should reference companies.');
     assertTrue(foreignKeyExists('rental_items', 'item_categories'), 'rental_items should reference item_categories.');
     assertTrue(foreignKeyExists('item_rates', 'rental_items'), 'item_rates should reference rental_items.');
+});
+
+$runner->test('booking schema supports Sprint 5B foundation', static function (): void {
+    $bookingColumns = columnsFor('bookings');
+    $bookingItemColumns = columnsFor('booking_items');
+
+    foreach ([
+        'id',
+        'public_id',
+        'organization_id',
+        'customer_id',
+        'company_id',
+        'status_key',
+        'start_date',
+        'end_date',
+        'customer_comment',
+        'internal_note',
+        'currency',
+        'total_units',
+        'subtotal_amount',
+        'deposit_amount',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, $bookingColumns, true), $column . ' should exist on bookings.');
+    }
+
+    foreach ([
+        'id',
+        'booking_id',
+        'rental_item_id',
+        'start_date',
+        'end_date',
+        'rate_type',
+        'unit_price',
+        'currency',
+        'quantity',
+        'number_of_units',
+        'subtotal_amount',
+        'deposit_amount',
+        'created_at',
+        'updated_at',
+    ] as $column) {
+        assertTrue(in_array($column, $bookingItemColumns, true), $column . ' should exist on booking_items.');
+    }
+
+    assertSame('varchar', columnDataType('bookings', 'status_key'), 'bookings.status_key should not use ENUM.');
+    assertSame('varchar', columnDataType('booking_statuses', 'status_key'), 'booking_statuses.status_key should not use ENUM.');
+
+    assertTrue(indexExists('bookings', 'uniq_bookings_public_id'), 'Booking public id unique index missing.');
+    assertTrue(indexExists('bookings', 'idx_bookings_organization_status_dates'), 'Booking organization/status/date index missing.');
+    assertTrue(indexExists('booking_items', 'idx_booking_items_item_dates'), 'Booking item date index missing.');
+    assertTrue(indexExists('booking_customer_snapshots', 'idx_booking_customer_snapshots_email_normalized'), 'Customer snapshot email index missing.');
+    assertTrue(foreignKeyExists('bookings', 'organizations'), 'bookings should reference organizations.');
+    assertTrue(foreignKeyExists('bookings', 'customers'), 'bookings should reference customers.');
+    assertTrue(foreignKeyExists('bookings', 'companies'), 'bookings should reference companies.');
+    assertTrue(foreignKeyExists('bookings', 'booking_statuses'), 'bookings should reference booking_statuses.');
+    assertTrue(foreignKeyExists('booking_items', 'bookings'), 'booking_items should reference bookings.');
+    assertTrue(foreignKeyExists('booking_items', 'rental_items'), 'booking_items should reference rental_items.');
+    assertTrue(foreignKeyExists('booking_status_history', 'bookings'), 'booking_status_history should reference bookings.');
+    assertTrue(foreignKeyExists('booking_customer_snapshots', 'bookings'), 'booking_customer_snapshots should reference bookings.');
+    assertTrue(foreignKeyExists('booking_price_snapshots', 'bookings'), 'booking_price_snapshots should reference bookings.');
+});
+
+$runner->test('booking status seed is idempotent and does not create bookings or customers', static function () use ($seederRunner): void {
+    $bookingsBefore = countRows('bookings');
+    $customersBefore = countRows('customers');
+
+    $seederRunner->run();
+    $seederRunner->run();
+
+    $statement = pdo()->query(
+        'SELECT status_key, is_blocking
+         FROM booking_statuses
+         WHERE deleted_at IS NULL
+         ORDER BY sort_order ASC'
+    );
+    $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+    $statusKeys = array_column($rows, 'status_key');
+
+    assertSame(
+        ['request', 'approved', 'rejected', 'cancelled', 'active', 'completed'],
+        $statusKeys,
+        'Booking status seed should match Sprint 5A keys.'
+    );
+
+    $blocking = [];
+    foreach ($rows as $row) {
+        if ((int) $row['is_blocking'] === 1) {
+            $blocking[] = $row['status_key'];
+        }
+    }
+    assertSame(['request', 'approved', 'active'], $blocking, 'Blocking status keys should match Sprint 5A.');
+
+    $duplicates = (int) pdo()->query(
+        'SELECT COUNT(*)
+         FROM (
+            SELECT status_key, COUNT(*) AS row_count
+            FROM booking_statuses
+            GROUP BY status_key
+            HAVING row_count > 1
+         ) duplicates'
+    )->fetchColumn();
+
+    assertSame(0, $duplicates, 'Booking status seed should not create duplicate status keys.');
+    assertSame($bookingsBefore, countRows('bookings'), 'Booking status seed should not create bookings.');
+    assertSame($customersBefore, countRows('customers'), 'Booking status seed should not create customers.');
+});
+
+$runner->test('Booking models map to booking foundation tables', static function (): void {
+    assertSame('bookings', Booking::tableName(), 'Booking table name should match booking foundation table.');
+    assertSame('booking_items', BookingItem::tableName(), 'BookingItem table name should match booking item table.');
 });
 
 $runner->test('seed creates six global categories and is idempotent', static function () use ($seederRunner): void {
@@ -1207,6 +1397,7 @@ $runner->test('public rental item listing has empty state and unauthenticated ro
     ]);
 
     assertTrue(
+        str_contains($html, 'Inga objekt finns tillg&auml;ngliga f&ouml;r uthyrning just nu.') ||
         str_contains($html, 'Inga objekt finns tillgÃ¤ngliga fÃ¶r uthyrning just nu.'),
         'Empty public list should show a friendly message.'
     );
@@ -1509,6 +1700,243 @@ $runner->test('RentalItemPublicationService enforces Version 1 publication rules
             static fn () => $service->publish($softDeletedModel),
             ModelException::class,
             'Soft-deleted item publish should throw.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('Booking repositories persist scoped guest/customer bookings, snapshots and overlap rules', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Booking Test One ' . $suffix, 'booking-test-one-' . $suffix);
+        $organizationTwoId = createOrganization('Booking Test Two ' . $suffix, 'booking-test-two-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for booking tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            int $organizationId,
+            string $slug,
+            string $name
+        ) use ($rentalItemRepository, $itemRateRepository, $categoryId): RentalItem {
+            $item = $rentalItemRepository->create([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => $name,
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+                'deposit_amount' => '500.00',
+            ]);
+
+            $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '450.00',
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]);
+
+            return $item;
+        };
+
+        $itemOne = $createItem($organizationOneId, 'booking-item-one-' . $suffix, 'Booking Item One ' . $suffix);
+        $itemTwo = $createItem($organizationTwoId, 'booking-item-two-' . $suffix, 'Booking Item Two ' . $suffix);
+        $customerId = createCustomer($organizationOneId, 'Linked Customer ' . $suffix, 'linked-' . $suffix . '@example.com');
+
+        $guestBooking = $bookingRepository->create([
+            'organization_id' => $organizationOneId,
+            'start_date' => '2026-10-10',
+            'end_date' => '2026-10-12',
+            'customer_name' => 'Guest Customer',
+            'customer_email' => ' Guest@Example.COM ',
+            'customer_phone' => '070-123 45 67',
+            'company_name' => 'Guest AB',
+            'customer_comment' => 'Customer needs pickup instructions.',
+            'internal_note' => 'Internal admin note should stay private.',
+        ]);
+        $guestBookingData = $guestBooking->toArray();
+
+        assertTrue(str_starts_with((string) $guestBookingData['public_id'], 'bkg_'), 'Booking public id should use booking prefix.');
+        assertSame('request', $guestBookingData['status_key'] ?? null, 'New booking should default to request.');
+
+        $bookingItem = $bookingItemRepository->create([
+            'organization_id' => $organizationOneId,
+            'booking_id' => (int) $guestBookingData['id'],
+            'rental_item_id' => (int) $itemOne->toArray()['id'],
+            'rate_type' => 'daily',
+            'unit_price' => '450.00',
+            'currency' => 'SEK',
+            'quantity' => 1,
+            'number_of_units' => 3,
+            'subtotal_amount' => '1350.00',
+            'deposit_amount' => '500.00',
+        ]);
+
+        $refreshedGuestBooking = $bookingRepository->findById((int) $guestBookingData['id'], $organizationOneId);
+        $refreshedGuestBookingData = $refreshedGuestBooking->toArray();
+
+        assertSame('3', (string) $refreshedGuestBookingData['total_units'], 'Booking totals should store calendar days.');
+        assertSame('1350.00', $refreshedGuestBookingData['subtotal_amount'] ?? null, 'Booking subtotal snapshot should persist.');
+        assertSame('500.00', $refreshedGuestBookingData['deposit_amount'] ?? null, 'Booking deposit snapshot should persist.');
+        assertSame(1, count($bookingItemRepository->findForBooking($organizationOneId, (int) $guestBookingData['id'])), 'Booking should have one item in V1 flow.');
+        assertSame((string) $guestBookingData['public_id'], $bookingRepository->findByPublicId((string) $guestBookingData['public_id'], $organizationOneId)?->toArray()['public_id'] ?? null, 'Booking should be found by public id in organization scope.');
+        assertThrows(
+            static fn () => $bookingRepository->findById((int) $guestBookingData['id'], $organizationTwoId),
+            ModelException::class,
+            'Booking lookup should not leak across organizations.'
+        );
+
+        $organizationOneBookings = $bookingRepository->findForOrganization($organizationOneId)->toArray();
+        $organizationTwoBookings = $bookingRepository->findForOrganization($organizationTwoId)->toArray();
+        assertTrue(count($organizationOneBookings) >= 1, 'Organization one should see its booking.');
+        assertSame(0, count($organizationTwoBookings), 'Organization two should not see organization one booking.');
+
+        $snapshot = pdo()->prepare(
+            'SELECT customer_name, customer_email_normalized, customer_phone, company_name
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshot->execute(['booking_id' => (int) $guestBookingData['id']]);
+        $snapshotRow = $snapshot->fetch(PDO::FETCH_ASSOC);
+        assertSame('Guest Customer', $snapshotRow['customer_name'] ?? null, 'Guest name snapshot should persist.');
+        assertSame('guest@example.com', $snapshotRow['customer_email_normalized'] ?? null, 'Guest email should be normalized in snapshot.');
+        assertSame('070-123 45 67', $snapshotRow['customer_phone'] ?? null, 'Guest phone snapshot should persist.');
+        assertSame('Guest AB', $snapshotRow['company_name'] ?? null, 'Optional company name snapshot should persist.');
+
+        $priceSnapshot = pdo()->prepare(
+            'SELECT rate_type, unit_price, currency, number_of_units, subtotal_amount, deposit_amount
+             FROM booking_price_snapshots
+             WHERE booking_item_id = :booking_item_id
+             LIMIT 1'
+        );
+        $priceSnapshot->execute(['booking_item_id' => (int) $bookingItem->toArray()['id']]);
+        $priceSnapshotRow = $priceSnapshot->fetch(PDO::FETCH_ASSOC);
+        assertSame('daily', $priceSnapshotRow['rate_type'] ?? null, 'Price snapshot should store rate type.');
+        assertSame('450.00', $priceSnapshotRow['unit_price'] ?? null, 'Price snapshot should store unit price.');
+        assertSame('SEK', $priceSnapshotRow['currency'] ?? null, 'Price snapshot should store currency.');
+        assertSame('3', (string) ($priceSnapshotRow['number_of_units'] ?? ''), 'Price snapshot should store calendar days.');
+        assertSame('1350.00', $priceSnapshotRow['subtotal_amount'] ?? null, 'Price snapshot should store subtotal.');
+        assertSame('500.00', $priceSnapshotRow['deposit_amount'] ?? null, 'Price snapshot should store deposit separately.');
+
+        $activeRates = $itemRateRepository->findActiveForItem($organizationOneId, (int) $itemOne->toArray()['id'])->toArray();
+        $rateId = (int) ($activeRates[0]['id'] ?? 0);
+        $itemRateRepository->update($rateId, ['amount' => '999.00'], $organizationOneId);
+
+        $priceSnapshot->execute(['booking_item_id' => (int) $bookingItem->toArray()['id']]);
+        $stablePriceSnapshotRow = $priceSnapshot->fetch(PDO::FETCH_ASSOC);
+        assertSame('450.00', $stablePriceSnapshotRow['unit_price'] ?? null, 'Item rate changes should not alter booking price snapshot.');
+        assertSame('450.00', $bookingItemRepository->findById((int) $bookingItem->toArray()['id'], $organizationOneId)->toArray()['unit_price'] ?? null, 'Item rate changes should not alter booking item snapshot.');
+
+        assertThrows(
+            static fn () => $bookingItemRepository->create([
+                'organization_id' => $organizationOneId,
+                'booking_id' => (int) $guestBookingData['id'],
+                'rental_item_id' => (int) $itemTwo->toArray()['id'],
+                'rate_type' => 'daily',
+                'unit_price' => '450.00',
+                'currency' => 'SEK',
+                'number_of_units' => 3,
+                'subtotal_amount' => '1350.00',
+            ]),
+            ModelException::class,
+            'Cross-tenant rental item booking should be rejected by repository.'
+        );
+
+        assertTrue(
+            $bookingItemRepository->hasBlockingOverlap(
+                $organizationOneId,
+                (int) $itemOne->toArray()['id'],
+                '2026-10-12',
+                '2026-10-13'
+            ),
+            'Inclusive overlap should block same end/start date.'
+        );
+        assertFalse(
+            $bookingItemRepository->hasBlockingOverlap(
+                $organizationOneId,
+                (int) $itemOne->toArray()['id'],
+                '2026-10-13',
+                '2026-10-14'
+            ),
+            'Non-overlapping dates should be available.'
+        );
+        assertFalse(
+            $bookingItemRepository->hasBlockingOverlap(
+                $organizationOneId,
+                (int) $itemOne->toArray()['id'],
+                '2026-10-10',
+                '2026-10-12',
+                (int) $guestBookingData['id']
+            ),
+            'Overlap check should support excluding the current booking.'
+        );
+
+        $bookingRepository->updateStatus($organizationOneId, (int) $guestBookingData['id'], 'rejected');
+        assertFalse(
+            $bookingItemRepository->hasBlockingOverlap(
+                $organizationOneId,
+                (int) $itemOne->toArray()['id'],
+                '2026-10-10',
+                '2026-10-12'
+            ),
+            'Rejected booking should not block the calendar.'
+        );
+
+        $historyStatement = pdo()->prepare(
+            'SELECT COUNT(*) FROM booking_status_history WHERE booking_id = :booking_id'
+        );
+        $historyStatement->execute(['booking_id' => (int) $guestBookingData['id']]);
+        assertSame(2, (int) $historyStatement->fetchColumn(), 'Initial and updated status should be recorded.');
+
+        $publicBooking = $bookingRepository->findPublicByPublicId((string) $guestBookingData['public_id']);
+        assertNotNull($publicBooking, 'Public-safe booking lookup should return booking.');
+        $publicBookingData = $publicBooking->toArray();
+        assertFalse(array_key_exists('id', $publicBookingData), 'Public booking lookup should not expose technical id.');
+        assertFalse(array_key_exists('organization_id', $publicBookingData), 'Public booking lookup should not expose organization id.');
+        assertFalse(array_key_exists('customer_id', $publicBookingData), 'Public booking lookup should not expose customer id.');
+        assertFalse(array_key_exists('internal_note', $publicBookingData), 'Public booking lookup should not expose internal note.');
+
+        $linkedCustomerBooking = $bookingRepository->create([
+            'organization_id' => $organizationOneId,
+            'customer_id' => $customerId,
+            'start_date' => '2026-11-01',
+            'end_date' => '2026-11-01',
+            'customer_name' => 'Linked Customer ' . $suffix,
+            'customer_email' => 'linked-' . $suffix . '@example.com',
+            'customer_phone' => '070-000 00 00',
+        ]);
+        assertSame($customerId, (int) ($linkedCustomerBooking->toArray()['customer_id'] ?? 0), 'Customer FK should persist when customer exists.');
+
+        assertTrue($bookingRepository->delete((int) $guestBookingData['id'], $organizationOneId), 'Booking delete should soft delete.');
+        assertThrows(
+            static fn () => $bookingRepository->findById((int) $guestBookingData['id'], $organizationOneId),
+            ModelException::class,
+            'Soft-deleted booking should be hidden from normal repository lookup.'
         );
 
         $pdo->rollBack();
