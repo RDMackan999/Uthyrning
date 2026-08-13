@@ -121,6 +121,58 @@ final class CategoryRepository extends BaseRepository
     }
 
     /**
+     * Find active categories that currently have at least one public rental item.
+     */
+    public function findPublicFilterOptions(): Collection
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT DISTINCT item_categories.*
+             FROM item_categories
+             INNER JOIN rental_items
+                ON rental_items.primary_category_id = item_categories.id
+                AND rental_items.publication_status_key = :publication_status
+                AND rental_items.is_active = 1
+                AND rental_items.is_rentable = 1
+                AND rental_items.deleted_at IS NULL
+             INNER JOIN organizations
+                ON organizations.id = rental_items.organization_id
+                AND organizations.status_key = :organization_status
+                AND organizations.deleted_at IS NULL
+             INNER JOIN item_rates AS daily_rates
+                ON daily_rates.rental_item_id = rental_items.id
+                AND daily_rates.rate_type = :daily_rate_type
+                AND daily_rates.is_active = 1
+                AND daily_rates.deleted_at IS NULL
+                AND daily_rates.id = (
+                    SELECT MIN(candidate_daily_rates.id)
+                    FROM item_rates AS candidate_daily_rates
+                    WHERE candidate_daily_rates.rental_item_id = rental_items.id
+                        AND candidate_daily_rates.rate_type = :candidate_daily_rate_type
+                        AND candidate_daily_rates.is_active = 1
+                        AND candidate_daily_rates.deleted_at IS NULL
+                )
+             WHERE item_categories.is_active = 1
+                AND item_categories.deleted_at IS NULL
+                AND (
+                    item_categories.organization_id IS NULL
+                    OR item_categories.organization_id = rental_items.organization_id
+                )
+             ORDER BY item_categories.organization_id IS NULL DESC,
+                item_categories.sort_order ASC,
+                item_categories.name ASC,
+                item_categories.id ASC'
+        );
+        $statement->execute([
+            'publication_status' => 'published',
+            'organization_status' => 'active',
+            'daily_rate_type' => 'daily',
+            'candidate_daily_rate_type' => 'daily',
+        ]);
+
+        return $this->categoriesFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Find an active category that can be used by one organization.
      */
     public function findAvailableForOrganizationById(int $categoryId, int $organizationId): ?Category
