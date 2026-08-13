@@ -150,59 +150,35 @@ final class RentalItemRepository extends BaseRepository
     public function findPublicListing(): Collection
     {
         $statement = Database::pdo()->prepare(
-            'SELECT rental_items.public_id,
-                rental_items.slug,
-                rental_items.name,
-                rental_items.short_name,
-                rental_items.description,
-                rental_items.created_at,
-                rental_items.updated_at,
-                organizations.name AS organization_name,
-                item_categories.name AS primary_category_name,
-                daily_rates.amount AS daily_rate_amount,
-                daily_rates.currency AS daily_rate_currency
-             FROM rental_items
-             INNER JOIN organizations
-                ON organizations.id = rental_items.organization_id
-                AND organizations.status_key = :organization_status
-                AND organizations.deleted_at IS NULL
-             INNER JOIN item_categories
-                ON item_categories.id = rental_items.primary_category_id
-                AND item_categories.is_active = 1
-                AND item_categories.deleted_at IS NULL
-                AND (
-                    item_categories.organization_id IS NULL
-                    OR item_categories.organization_id = rental_items.organization_id
-                )
-             INNER JOIN item_rates AS daily_rates
-                ON daily_rates.rental_item_id = rental_items.id
-                AND daily_rates.rate_type = :daily_rate_type
-                AND daily_rates.is_active = 1
-                AND daily_rates.deleted_at IS NULL
-                AND daily_rates.id = (
-                    SELECT MIN(candidate_daily_rates.id)
-                    FROM item_rates AS candidate_daily_rates
-                    WHERE candidate_daily_rates.rental_item_id = rental_items.id
-                        AND candidate_daily_rates.rate_type = :candidate_daily_rate_type
-                        AND candidate_daily_rates.is_active = 1
-                        AND candidate_daily_rates.deleted_at IS NULL
-                )
-             WHERE rental_items.publication_status_key = :publication_status
-                AND rental_items.is_active = 1
-                AND rental_items.is_rentable = 1
-                AND rental_items.deleted_at IS NULL
-             ORDER BY rental_items.created_at DESC,
+            $this->publicItemBaseSql()
+            . ' ORDER BY rental_items.created_at DESC,
                 rental_items.name ASC,
                 rental_items.id ASC'
         );
-        $statement->execute([
-            'organization_status' => 'active',
-            'daily_rate_type' => 'daily',
-            'candidate_daily_rate_type' => 'daily',
-            'publication_status' => 'published',
-        ]);
+        $statement->execute($this->publicItemParams());
 
         return $this->itemsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Find one public rental item by immutable public id and current slug.
+     */
+    public function findPublicDetail(string $publicId, string $slug): ?RentalItem
+    {
+        $statement = Database::pdo()->prepare(
+            $this->publicItemBaseSql()
+            . ' AND rental_items.public_id = :public_id
+                AND rental_items.slug = :slug
+             LIMIT 1'
+        );
+        $statement->execute($this->publicItemParams([
+            'public_id' => trim($publicId),
+            'slug' => $this->normalizeSlug($slug),
+        ]));
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : new RentalItem($row);
     }
 
     /**
@@ -412,6 +388,66 @@ final class RentalItemRepository extends BaseRepository
             static fn (array $row): RentalItem => new RentalItem($row),
             $rows
         ));
+    }
+
+    private function publicItemBaseSql(): string
+    {
+        return 'SELECT rental_items.public_id,
+                rental_items.slug,
+                rental_items.name,
+                rental_items.short_name,
+                rental_items.description,
+                rental_items.deposit_amount,
+                rental_items.created_at,
+                rental_items.updated_at,
+                organizations.name AS organization_name,
+                item_categories.name AS primary_category_name,
+                daily_rates.amount AS daily_rate_amount,
+                daily_rates.currency AS daily_rate_currency
+             FROM rental_items
+             INNER JOIN organizations
+                ON organizations.id = rental_items.organization_id
+                AND organizations.status_key = :organization_status
+                AND organizations.deleted_at IS NULL
+             INNER JOIN item_categories
+                ON item_categories.id = rental_items.primary_category_id
+                AND item_categories.is_active = 1
+                AND item_categories.deleted_at IS NULL
+                AND (
+                    item_categories.organization_id IS NULL
+                    OR item_categories.organization_id = rental_items.organization_id
+                )
+             INNER JOIN item_rates AS daily_rates
+                ON daily_rates.rental_item_id = rental_items.id
+                AND daily_rates.rate_type = :daily_rate_type
+                AND daily_rates.is_active = 1
+                AND daily_rates.deleted_at IS NULL
+                AND daily_rates.id = (
+                    SELECT MIN(candidate_daily_rates.id)
+                    FROM item_rates AS candidate_daily_rates
+                    WHERE candidate_daily_rates.rental_item_id = rental_items.id
+                        AND candidate_daily_rates.rate_type = :candidate_daily_rate_type
+                        AND candidate_daily_rates.is_active = 1
+                        AND candidate_daily_rates.deleted_at IS NULL
+                )
+             WHERE rental_items.publication_status_key = :publication_status
+                AND rental_items.is_active = 1
+                AND rental_items.is_rentable = 1
+                AND rental_items.deleted_at IS NULL';
+    }
+
+    /**
+     * @param array<string, string> $overrides
+     * @return array<string, string>
+     */
+    private function publicItemParams(array $overrides = []): array
+    {
+        return array_merge([
+            'organization_status' => 'active',
+            'daily_rate_type' => 'daily',
+            'candidate_daily_rate_type' => 'daily',
+            'publication_status' => 'published',
+        ], $overrides);
     }
 
     private function generateUniquePublicId(): string

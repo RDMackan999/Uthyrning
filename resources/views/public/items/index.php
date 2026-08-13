@@ -30,9 +30,20 @@ $formatPrice = static function (mixed $amount, mixed $currency) use ($stringValu
                 } ?>
                 <?php
                 $description = $stringValue($item['description'] ?? null);
+                $publicId = $stringValue($item['public_id'] ?? null);
+                $slug = $stringValue($item['slug'] ?? null);
+                $detailUrl = $publicId !== '' && $slug !== ''
+                    ? '/items/' . rawurlencode($publicId) . '/' . rawurlencode($slug)
+                    : '';
                 ?>
                 <article class="public-item-card">
-                    <h2><?= $escape($item['name'] ?? '') ?></h2>
+                    <h2>
+                        <?php if ($detailUrl !== ''): ?>
+                            <a href="<?= $escape($detailUrl) ?>"><?= $escape($item['name'] ?? '') ?></a>
+                        <?php else: ?>
+                            <?= $escape($item['name'] ?? '') ?>
+                        <?php endif; ?>
+                    </h2>
                     <p class="public-item-meta">
                         <?= $escape($item['primary_category_name'] ?? '') ?>
                         <?php if ($stringValue($item['organization_name'] ?? null) !== ''): ?>
@@ -47,6 +58,10 @@ $formatPrice = static function (mixed $amount, mixed $currency) use ($stringValu
                     <p class="public-item-price">
                         <?= $escape($formatPrice($item['daily_rate_amount'] ?? null, $item['daily_rate_currency'] ?? 'SEK')) ?>
                     </p>
+
+                    <?php if ($detailUrl !== ''): ?>
+                        <a class="public-detail-link" href="<?= $escape($detailUrl) ?>">Visa objekt</a>
+                    <?php endif; ?>
                 </article>
             <?php endforeach; ?>
         </div>

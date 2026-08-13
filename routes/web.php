@@ -29,6 +29,10 @@ return static function (Router $router): void {
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
     $router->get('/items', static fn (Request $request): Response => $publicRentalItemController->index($request));
+    $router->get(
+        '/items/{public_id}/{slug}',
+        static fn (Request $request): Response => $publicRentalItemController->show($request)
+    );
 
     $router->get('/login', static fn (Request $request): Response => $authController->showLogin($request));
     $router->post('/login', static fn (Request $request): Response => $authController->login($request));

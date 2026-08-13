@@ -1183,6 +1183,11 @@ $runner->test('public rental item listing exposes only publishable items', stati
 
         assertTrue(str_contains($html, 'Public Visible ' . $suffix), 'Public view should render visible item.');
         assertTrue(str_contains($html, '450 SEK/dag'), 'Public view should render daily rate.');
+        assertTrue(
+            str_contains($html, '/items/' . rawurlencode((string) $visibleRow['public_id']) . '/' . rawurlencode((string) $visibleRow['slug'])),
+            'Public view should link to the detail route.'
+        );
+        assertTrue(str_contains($html, 'Visa objekt'), 'Public view should render a detail link label.');
         assertFalse(str_contains($html, 'Hemlig intern notering'), 'Public view should not render internal note.');
         assertFalse(str_contains($html, '999999'), 'Public view should not render technical id.');
 
@@ -1213,6 +1218,199 @@ $runner->test('public rental item listing has empty state and unauthenticated ro
     $response = $router->dispatch(new Request('GET', '/items'));
 
     assertSame(200, $response->statusCode(), 'Public /items route should not require authentication.');
+});
+
+$runner->test('public rental item detail renders safe fields and rejects non-public items', static function () use (
+    $basePath,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Public Detail Test ' . $suffix, 'public-detail-test-' . $suffix);
+
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for public detail tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            string $slug,
+            string $name,
+            array $overrides = []
+        ) use ($rentalItemRepository, $organizationId, $categoryId): RentalItem {
+            return $rentalItemRepository->create(array_merge([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => $name,
+                'short_name' => 'Kortnamn ' . $name,
+                'description' => 'Publik detaljbeskrivning.',
+                'internal_note' => 'Intern detalj ska aldrig synas.',
+                'serial_number' => 'SERIE-HEMLIG',
+                'inventory_number' => 'INV-HEMLIG',
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+                'deposit_amount' => '500.00',
+            ], $overrides));
+        };
+
+        $addDailyRate = static function (RentalItem $item, bool $isActive = true) use (
+            $itemRateRepository,
+            $organizationId
+        ): ItemRate {
+            return $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '450.00',
+                'currency' => 'SEK',
+                'is_active' => $isActive,
+            ]);
+        };
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $dispatchDetail = static function (RentalItem $item, ?string $publicId = null, ?string $slug = null) use ($router): Response {
+            $data = $item->toArray();
+            $path = '/items/'
+                . rawurlencode($publicId ?? (string) $data['public_id'])
+                . '/'
+                . rawurlencode($slug ?? (string) $data['slug']);
+
+            return $router->dispatch(new Request('GET', $path));
+        };
+
+        $visibleItem = $createItem('public-detail-visible-' . $suffix, 'Public Detail Visible ' . $suffix);
+        $addDailyRate($visibleItem);
+
+        $detail = $rentalItemRepository->findPublicDetail(
+            (string) $visibleItem->toArray()['public_id'],
+            (string) $visibleItem->toArray()['slug']
+        );
+        assertNotNull($detail, 'Repository should find a valid public detail item.');
+
+        $response = $dispatchDetail($visibleItem);
+        $content = $response->content();
+
+        assertSame(200, $response->statusCode(), 'Published active rentable detail route should return 200.');
+        assertTrue(str_contains($content, 'Public Detail Visible ' . $suffix), 'Detail should render item name.');
+        assertTrue(str_contains($content, 'Kortnamn Public Detail Visible ' . $suffix), 'Detail should render short name.');
+        assertTrue(str_contains($content, 'Publik detaljbeskrivning.'), 'Detail should render description.');
+        assertTrue(str_contains($content, 'Verktyg'), 'Detail should render primary category.');
+        assertTrue(str_contains($content, 'Public Detail Test ' . $suffix), 'Detail should render organization name.');
+        assertTrue(str_contains($content, '450 SEK/dag'), 'Detail should render active daily rate.');
+        assertTrue(str_contains($content, 'Deposition: 500 SEK'), 'Detail should render deposit when present.');
+        assertTrue(str_contains($content, '/items'), 'Detail should include a link back to listing.');
+        assertFalse(str_contains($content, 'Intern detalj ska aldrig synas.'), 'Detail should not expose internal note.');
+        assertFalse(str_contains($content, 'SERIE-HEMLIG'), 'Detail should not expose serial number.');
+        assertFalse(str_contains($content, 'INV-HEMLIG'), 'Detail should not expose inventory number.');
+
+        $safeViewHtml = (new View())->render('public/items/show', [
+            'item' => $detail->toArray() + [
+                'id' => '999999',
+                'internal_note' => 'Hemlig vyanteckning',
+            ],
+        ]);
+        assertFalse(str_contains($safeViewHtml, '999999'), 'Detail view should not render technical id.');
+        assertFalse(str_contains($safeViewHtml, 'Hemlig vyanteckning'), 'Detail view should not render internal note.');
+
+        $optionalItem = $createItem('public-detail-optional-' . $suffix, 'Public Detail Optional ' . $suffix, [
+            'short_name' => null,
+            'description' => null,
+            'deposit_amount' => null,
+        ]);
+        $addDailyRate($optionalItem);
+        $optionalResponse = $dispatchDetail($optionalItem);
+        assertSame(200, $optionalResponse->statusCode(), 'Empty optional fields should not break detail route.');
+        assertFalse(str_contains($optionalResponse->content(), 'Deposition:'), 'Missing deposit should not render deposit row.');
+
+        $rejectedItems = [];
+
+        $draftItem = $createItem('public-detail-draft-' . $suffix, 'Public Detail Draft ' . $suffix, [
+            'publication_status_key' => 'draft',
+        ]);
+        $addDailyRate($draftItem);
+        $rejectedItems['draft item'] = $draftItem;
+
+        $archivedItem = $createItem('public-detail-archived-' . $suffix, 'Public Detail Archived ' . $suffix, [
+            'publication_status_key' => 'archived',
+        ]);
+        $addDailyRate($archivedItem);
+        $rejectedItems['archived item'] = $archivedItem;
+
+        $softDeletedItem = $createItem('public-detail-soft-deleted-' . $suffix, 'Public Detail Soft Deleted ' . $suffix);
+        $addDailyRate($softDeletedItem);
+        $rentalItemRepository->delete((int) $softDeletedItem->toArray()['id']);
+        $rejectedItems['soft-deleted item'] = $softDeletedItem;
+
+        $inactiveItem = $createItem('public-detail-inactive-' . $suffix, 'Public Detail Inactive ' . $suffix, [
+            'is_active' => false,
+        ]);
+        $addDailyRate($inactiveItem);
+        $rejectedItems['inactive item'] = $inactiveItem;
+
+        $notRentableItem = $createItem('public-detail-not-rentable-' . $suffix, 'Public Detail Not Rentable ' . $suffix, [
+            'is_rentable' => false,
+        ]);
+        $addDailyRate($notRentableItem);
+        $rejectedItems['not rentable item'] = $notRentableItem;
+
+        $withoutRateItem = $createItem('public-detail-without-rate-' . $suffix, 'Public Detail Without Rate ' . $suffix);
+        $rejectedItems['item without active daily rate'] = $withoutRateItem;
+
+        $inactiveRateItem = $createItem('public-detail-inactive-rate-' . $suffix, 'Public Detail Inactive Rate ' . $suffix);
+        $addDailyRate($inactiveRateItem, false);
+        $rejectedItems['item with inactive daily rate'] = $inactiveRateItem;
+
+        $softDeletedRateItem = $createItem('public-detail-soft-deleted-rate-' . $suffix, 'Public Detail Soft Deleted Rate ' . $suffix);
+        $softDeletedRate = $addDailyRate($softDeletedRateItem);
+        $itemRateRepository->delete((int) $softDeletedRate->toArray()['id'], $organizationId);
+        $rejectedItems['item with soft-deleted daily rate'] = $softDeletedRateItem;
+
+        foreach ($rejectedItems as $case => $item) {
+            assertSame(404, $dispatchDetail($item)->statusCode(), $case . ' should return 404.');
+            assertSame(
+                null,
+                $rentalItemRepository->findPublicDetail(
+                    (string) $item->toArray()['public_id'],
+                    (string) $item->toArray()['slug']
+                ),
+                $case . ' should not be found by public repository lookup.'
+            );
+        }
+
+        assertSame(
+            404,
+            $dispatchDetail($visibleItem, 'itm_missing_' . $suffix)->statusCode(),
+            'Wrong public_id should return 404.'
+        );
+        assertSame(
+            404,
+            $dispatchDetail($visibleItem, null, 'wrong-slug-' . $suffix)->statusCode(),
+            'Wrong slug should return 404 until redirect history exists.'
+        );
+        assertSame(
+            404,
+            $router->dispatch(new Request('GET', '/items/' . rawurlencode((string) $visibleItem->toArray()['public_id'])))->statusCode(),
+            'Incomplete detail route should return 404.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
 });
 
 $runner->test('RentalItemPublicationService enforces Version 1 publication rules', static function () use (
