@@ -8,6 +8,7 @@ use App\Core\BaseController;
 use App\Core\NotFoundException;
 use App\Core\Request;
 use App\Core\Response;
+use App\Repositories\CategoryRepository;
 use App\Repositories\RentalItemRepository;
 
 /**
@@ -17,6 +18,7 @@ final class PublicRentalItemController extends BaseController
 {
     public function __construct(
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
+        private readonly CategoryRepository $categoryRepository = new CategoryRepository(),
     ) {
         parent::__construct();
     }
@@ -26,9 +28,19 @@ final class PublicRentalItemController extends BaseController
      */
     public function index(Request $request): Response
     {
+        $filters = [
+            'q' => $this->normalizeSearchQuery($request->query('q', '')),
+            'category' => $this->normalizeCategorySlug($request->query('category', '')),
+        ];
+        $items = $this->rentalItemRepository->findPublicListing($filters)->toArray();
+
         return $this->viewWithLayout('public/items/index', 'layouts/public', [
             'pageTitle' => 'Hyr objekt',
-            'items' => $this->rentalItemRepository->findPublicListing()->toArray(),
+            'items' => $items,
+            'categories' => $this->categoryRepository->findPublicFilterOptions()->toArray(),
+            'filters' => $filters,
+            'hasActiveFilters' => $filters['q'] !== '' || $filters['category'] !== '',
+            'resultCount' => count($items),
         ]);
     }
 
@@ -52,5 +64,29 @@ final class PublicRentalItemController extends BaseController
             'pageTitle' => (string) ($itemData['name'] ?? 'Objekt'),
             'item' => $itemData,
         ]);
+    }
+
+    private function normalizeSearchQuery(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $query = trim((string) $value);
+
+        if ($query === '') {
+            return '';
+        }
+
+        return function_exists('mb_substr') ? mb_substr($query, 0, 100) : substr($query, 0, 100);
+    }
+
+    private function normalizeCategorySlug(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        return strtolower(trim((string) $value));
     }
 }
