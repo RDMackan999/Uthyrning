@@ -145,17 +145,20 @@ final class RentalItemRepository extends BaseRepository
     /**
      * Find rental items that are safe to show in the public listing.
      *
+     * @param array{q?: mixed, category?: mixed, category_slug?: mixed} $filters
      * @return Collection<RentalItem>
      */
-    public function findPublicListing(): Collection
+    public function findPublicListing(array $filters = []): Collection
     {
+        $params = $this->publicItemParams();
+        $sql = $this->publicItemBaseSql() . $this->publicFilterSql($filters, $params);
+
         $statement = Database::pdo()->prepare(
-            $this->publicItemBaseSql()
-            . ' ORDER BY rental_items.created_at DESC,
+            $sql . ' ORDER BY rental_items.created_at DESC,
                 rental_items.name ASC,
                 rental_items.id ASC'
         );
-        $statement->execute($this->publicItemParams());
+        $statement->execute($params);
 
         return $this->itemsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -401,6 +404,8 @@ final class RentalItemRepository extends BaseRepository
                 rental_items.created_at,
                 rental_items.updated_at,
                 organizations.name AS organization_name,
+                item_categories.slug AS primary_category_slug,
+                item_categories.organization_id AS primary_category_organization_id,
                 item_categories.name AS primary_category_name,
                 daily_rates.amount AS daily_rate_amount,
                 daily_rates.currency AS daily_rate_currency
@@ -437,8 +442,38 @@ final class RentalItemRepository extends BaseRepository
     }
 
     /**
-     * @param array<string, string> $overrides
-     * @return array<string, string>
+     * Add safe public filters without weakening the base publication rules.
+     *
+     * @param array{q?: mixed, category?: mixed, category_slug?: mixed} $filters
+     * @param array<string, mixed> $params
+     */
+    private function publicFilterSql(array $filters, array &$params): string
+    {
+        $sql = '';
+        $searchQuery = $this->normalizeSearchQuery($filters['q'] ?? null);
+
+        if ($searchQuery !== '') {
+            $params['search_query'] = '%' . $this->escapeLike($searchQuery) . '%';
+            $sql .= ' AND (
+                    rental_items.name LIKE :search_query ESCAPE \'\\\\\'
+                    OR COALESCE(rental_items.short_name, \'\') LIKE :search_query ESCAPE \'\\\\\'
+                    OR COALESCE(rental_items.description, \'\') LIKE :search_query ESCAPE \'\\\\\'
+                )';
+        }
+
+        $categorySlug = $this->normalizeSlug((string) ($filters['category_slug'] ?? $filters['category'] ?? ''));
+
+        if ($categorySlug !== '') {
+            $params['category_slug'] = $categorySlug;
+            $sql .= ' AND item_categories.slug = :category_slug';
+        }
+
+        return $sql;
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
      */
     private function publicItemParams(array $overrides = []): array
     {
@@ -487,6 +522,30 @@ final class RentalItemRepository extends BaseRepository
     private function normalizeSlug(string $slug): string
     {
         return strtolower(trim($slug));
+    }
+
+    private function normalizeSearchQuery(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $query = trim((string) $value);
+
+        if ($query === '') {
+            return '';
+        }
+
+        return function_exists('mb_substr') ? mb_substr($query, 0, 100) : substr($query, 0, 100);
+    }
+
+    private function escapeLike(string $value): string
+    {
+        return str_replace(
+            ['\\', '%', '_'],
+            ['\\\\', '\\%', '\\_'],
+            $value
+        );
     }
 
     private function normalizeKey(string $key): string
