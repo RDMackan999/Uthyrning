@@ -14,6 +14,7 @@ use App\Core\Response;
 use App\Core\Router;
 use App\Core\SeederRunner;
 use App\Core\View;
+use App\Controllers\AdminNotificationController;
 use App\Http\BookingRequestFormRequest;
 use App\Http\ItemRateFormRequest;
 use App\Http\RentalItemFormRequest;
@@ -4331,6 +4332,463 @@ $runner->test('admin availability block flow enforces auth, CSRF, scope, audit a
         $archivedAuditContext = (string) $auditStatement->fetchColumn();
         assertTrue(str_contains($archivedAuditContext, 'reason_code'), 'Archive audit should include safe reason code.');
         assertFalse(str_contains($archivedAuditContext, 'Owner needs the item.'), 'Archive audit should not include internal note.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('admin notification operations enforce access, privacy, retry, audit and independence', static function () use (
+    $basePath,
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Notification Admin One ' . $suffix, 'notification-admin-one-' . $suffix);
+        $organizationTwoId = createOrganization('Notification Admin Two ' . $suffix, 'notification-admin-two-' . $suffix);
+        setOrganizationEmail($organizationOneId, 'admin-notify-' . $suffix . '@example.com');
+        setOrganizationEmail($organizationTwoId, 'other-notify-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for notification admin tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $item = createBookableRentalItem(
+            $organizationOneId,
+            $categoryId,
+            'notification-admin-item-' . $suffix,
+            'Notification Admin Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $otherTenantItem = createBookableRentalItem(
+            $organizationTwoId,
+            $categoryId,
+            'notification-other-item-' . $suffix,
+            'Notification Other Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+
+        $notificationRepository = new NotificationRepository();
+        $notificationAttemptRepository = new NotificationAttemptRepository();
+        $templateService = new NotificationTemplateService();
+        $failingTransport = new DevelopmentEmailTransport(true);
+        $failingNotificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $failingTransport
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $successTransport = new DevelopmentEmailTransport();
+        $successNotificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $successTransport
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $failingBookingService = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $failingNotificationService
+        );
+        $successBookingService = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $successNotificationService
+        );
+
+        $retryBooking = $failingBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2032-01-10',
+            'end_date' => '2032-01-11',
+            'customer_name' => 'Retry Guest ' . $suffix,
+            'customer_email' => 'retry-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 10',
+            'customer_comment' => 'Public comment stays with booking.',
+            'internal_note' => 'Booking snapshot should not change on retry.',
+        ]);
+        $retryBookingId = (int) $retryBooking->toArray()['id'];
+        $retryNotification = notificationForBooking($retryBookingId, 'booking_created', 'customer');
+        $retryData = $retryNotification->toArray();
+        $retryNotificationId = (int) ($retryData['id'] ?? 0);
+        $retryPublicId = (string) ($retryData['public_id'] ?? '');
+        $originalIdempotencyKey = (string) ($retryData['idempotency_key'] ?? '');
+
+        $sentBooking = $successBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2032-01-12',
+            'end_date' => '2032-01-12',
+            'customer_name' => 'Sent Guest ' . $suffix,
+            'customer_email' => 'sent-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 12',
+        ]);
+        $sentNotification = notificationForBooking((int) $sentBooking->toArray()['id'], 'booking_created', 'customer');
+        $sentPublicId = (string) ($sentNotification->toArray()['public_id'] ?? '');
+
+        $approvedBooking = $successBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2032-01-13',
+            'end_date' => '2032-01-13',
+            'customer_name' => 'Approved Notification Guest ' . $suffix,
+            'customer_email' => 'approved-notification-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 13',
+        ]);
+        $statusService = new BookingStatusService($bookingRepository, new AuditService(), $successNotificationService);
+        $statusService->transition($organizationOneId, (int) $approvedBooking->toArray()['id'], 'approved');
+        $approvedNotification = notificationForBooking((int) $approvedBooking->toArray()['id'], 'booking_approved', 'customer');
+        $approvedPublicId = (string) ($approvedNotification->toArray()['public_id'] ?? '');
+
+        $maxBooking = $failingBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2032-01-14',
+            'end_date' => '2032-01-14',
+            'customer_name' => 'Max Attempts Guest ' . $suffix,
+            'customer_email' => 'max-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 14',
+        ]);
+        $failingNotificationService->notifyBookingCreated($maxBooking);
+        $failingNotificationService->notifyBookingCreated($maxBooking);
+        $maxNotification = notificationForBooking((int) $maxBooking->toArray()['id'], 'booking_created', 'customer');
+        $maxPublicId = (string) ($maxNotification->toArray()['public_id'] ?? '');
+
+        $otherBooking = $successBookingService->createRequest([
+            'rental_item_id' => (int) $otherTenantItem->toArray()['id'],
+            'start_date' => '2032-01-15',
+            'end_date' => '2032-01-15',
+            'customer_name' => 'Other Tenant Notification ' . $suffix,
+            'customer_email' => 'other-tenant-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 15',
+        ]);
+        $otherNotification = notificationForBooking((int) $otherBooking->toArray()['id'], 'booking_created', 'customer');
+        $otherPublicId = (string) ($otherNotification->toArray()['public_id'] ?? '');
+
+        assertSame('pending', $retryData['status_key'] ?? null, 'Retryable failed delivery should stay pending while attempts remain.');
+        assertSame(1, (int) ($retryData['attempts_count'] ?? 0), 'Initial failed delivery should register one attempt.');
+        assertSame('failed', $maxNotification->toArray()['status_key'] ?? null, 'Maxed notification should be failed.');
+        assertSame(3, (int) ($maxNotification->toArray()['attempts_count'] ?? 0), 'Maxed notification should have three attempts.');
+        assertSame(
+            null,
+            $notificationRepository->findAdminByPublicId($otherPublicId, $organizationOneId),
+            'Scoped notification lookup should not leak cross-tenant notifications.'
+        );
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $adminSession = createAuthenticatedTestUser(true);
+        $userSession = createAuthenticatedTestUser(false);
+        $adminToken = $adminSession['token'];
+        $adminUserId = $adminSession['user_id'];
+        $adminCookies = ['uthyrning_session' => $adminToken];
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+
+        $unauthenticatedList = $router->dispatch(new Request('GET', '/admin/notifications'));
+        assertSame(302, $unauthenticatedList->statusCode(), 'Unauthenticated users should be redirected from notification admin.');
+
+        $forbiddenList = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications',
+            [],
+            [],
+            ['uthyrning_session' => $userSession['token']],
+            $server
+        ));
+        assertSame(403, $forbiddenList->statusCode(), 'Non-admin users should be denied notification admin.');
+
+        $adminList = $router->dispatch(new Request('GET', '/admin/notifications', [], [], $adminCookies, $server));
+        assertSame(200, $adminList->statusCode(), 'system_admin should list notifications.');
+        $listContent = $adminList->content();
+        assertTrue(str_contains($listContent, $retryPublicId), 'Notification list should include public reference.');
+        assertTrue(str_contains($listContent, 'booking_created'), 'Notification list should include event.');
+        assertTrue(str_contains($listContent, 'email'), 'Notification list should include channel.');
+        assertTrue(str_contains($listContent, 're***@example.com'), 'Notification list should show minimized recipient.');
+        assertFalse(str_contains($listContent, 'retry-' . $suffix . '@example.com'), 'Notification list should not expose full recipient.');
+        assertTrue(str_contains($listContent, 'Notification Admin One ' . $suffix), 'Notification list should show organization.');
+        assertFalse(str_contains($listContent, 'htmlBody'), 'Notification list should not expose mail body.');
+        assertFalse(str_contains($listContent, 'smtp_password'), 'Notification list should not expose credentials.');
+        assertFalse(str_contains($listContent, 'Booking snapshot should not change on retry.'), 'Notification list should not expose booking snapshot details.');
+
+        $pendingFilter = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications?status=pending',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $pendingFilter->statusCode(), 'Status filter should render.');
+        assertTrue(str_contains($pendingFilter->content(), $retryPublicId), 'Pending filter should include retryable notification.');
+
+        $failedFilter = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications?status=failed',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $failedFilter->statusCode(), 'Failed status filter should render.');
+        assertTrue(str_contains($failedFilter->content(), $maxPublicId), 'Failed filter should include maxed notification.');
+
+        $eventFilter = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications?event=booking_approved',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $eventFilter->statusCode(), 'Event filter should render.');
+        assertTrue(str_contains($eventFilter->content(), $approvedPublicId), 'Event filter should include matching notification.');
+        assertFalse(str_contains($eventFilter->content(), $retryPublicId), 'Event filter should exclude other events.');
+
+        $detail = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications/' . rawurlencode($retryPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $detail->statusCode(), 'Notification detail should open by public id.');
+        $detailContent = $detail->content();
+        assertTrue(str_contains($detailContent, 'retry-' . $suffix . '@example.com'), 'Detail may show full recipient to authorized admin.');
+        assertTrue(str_contains($detailContent, 'Försökshistorik'), 'Detail should show attempt history.');
+        assertTrue(str_contains($detailContent, 'development_failure'), 'Detail should show safe error category.');
+        assertFalse(str_contains($detailContent, 'smtp_password'), 'Detail should not expose credentials.');
+        assertFalse(str_contains($detailContent, 'htmlBody'), 'Detail should not expose mail body.');
+        assertFalse(str_contains($detailContent, 'Booking snapshot should not change on retry.'), 'Detail should not expose complete booking snapshot.');
+
+        $missingDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications/ntf_missing_' . $suffix,
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(404, $missingDetail->statusCode(), 'Unknown notification public id should return safe 404.');
+
+        $missingCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/notifications/' . rawurlencode($retryPublicId) . '/retry',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(302, $missingCsrf->statusCode(), 'Retry without CSRF should redirect safely.');
+        assertSame(
+            1,
+            $notificationAttemptRepository->countForNotification($retryNotificationId),
+            'Missing CSRF should not create a new attempt.'
+        );
+
+        $bookingStatusBefore = $bookingRepository->findByPublicId((string) $retryBooking->toArray()['public_id'], $organizationOneId)?->toArray()['status_key'] ?? null;
+        $snapshotBefore = pdo()->prepare(
+            'SELECT customer_email, customer_name
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshotBefore->execute(['booking_id' => $retryBookingId]);
+        $snapshotBeforeData = $snapshotBefore->fetch(PDO::FETCH_ASSOC);
+        $notificationCountBefore = countRows('notifications');
+
+        $retryResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/notifications/' . rawurlencode($retryPublicId) . '/retry',
+            $adminToken
+        ));
+        assertSame(302, $retryResponse->statusCode(), 'Manual retry should redirect after processing.');
+
+        $retriedNotification = $notificationRepository->findByPublicId($retryPublicId);
+        assertNotNull($retriedNotification, 'Retried notification should still exist.');
+        $retriedData = $retriedNotification->toArray();
+        assertSame('sent', $retriedData['status_key'] ?? null, 'Development retry success should mark notification sent.');
+        assertSame(2, (int) ($retriedData['attempts_count'] ?? 0), 'Retry should append one new attempt.');
+        assertSame(2, $notificationAttemptRepository->countForNotification($retryNotificationId), 'Retry should create one new append-only attempt.');
+        assertSame($originalIdempotencyKey, $retriedData['idempotency_key'] ?? null, 'Retry should keep idempotency key unchanged.');
+        assertSame($notificationCountBefore, countRows('notifications'), 'Retry should not create a new logical notification.');
+        assertSame(
+            $bookingStatusBefore,
+            $bookingRepository->findByPublicId((string) $retryBooking->toArray()['public_id'], $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Retry should not change booking status.'
+        );
+        $snapshotAfter = pdo()->prepare(
+            'SELECT customer_email, customer_name
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshotAfter->execute(['booking_id' => $retryBookingId]);
+        assertSame($snapshotBeforeData, $snapshotAfter->fetch(PDO::FETCH_ASSOC), 'Retry should not change booking snapshot.');
+        assertFalse(
+            $bookingAvailabilityService->isAvailable(
+                $organizationOneId,
+                (int) $item->toArray()['id'],
+                '2032-01-10',
+                '2032-01-11'
+            ),
+            'Retry should not change booking availability rules.'
+        );
+
+        $auditStatement = $pdo->prepare(
+            'SELECT context_json
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND actor_user_id = :actor_user_id
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $auditStatement->execute([
+            'event_name' => 'notification_retried',
+            'actor_user_id' => $adminUserId,
+            'subject_type' => 'notification',
+            'subject_id' => $retryNotificationId,
+        ]);
+        $retryAuditContext = (string) $auditStatement->fetchColumn();
+        assertTrue(str_contains($retryAuditContext, 'attempts_before'), 'Retry audit should include safe operational context.');
+        assertFalse(str_contains($retryAuditContext, 'retry-' . $suffix . '@example.com'), 'Retry audit should not include full recipient.');
+        assertFalse(str_contains($retryAuditContext, 'htmlBody'), 'Retry audit should not include mail body.');
+
+        $detailAfterRetry = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications/' . rawurlencode($retryPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        $detailAfterRetryContent = $detailAfterRetry->content();
+        assertTrue(
+            strpos($detailAfterRetryContent, '>1<') < strpos($detailAfterRetryContent, '>2<'),
+            'Attempt history should render in chronological order.'
+        );
+
+        $maxBeforeAttempts = $notificationAttemptRepository->countForNotification((int) $maxNotification->toArray()['id']);
+        $maxRetry = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/notifications/' . rawurlencode($maxPublicId) . '/retry',
+            $adminToken
+        ));
+        assertSame(302, $maxRetry->statusCode(), 'Retry above max attempts should redirect safely.');
+        assertSame(
+            $maxBeforeAttempts,
+            $notificationAttemptRepository->countForNotification((int) $maxNotification->toArray()['id']),
+            'Fourth attempt should be denied.'
+        );
+
+        $sentBeforeAttempts = $notificationAttemptRepository->countForNotification((int) $sentNotification->toArray()['id']);
+        $sentRetry = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/notifications/' . rawurlencode($sentPublicId) . '/retry',
+            $adminToken
+        ));
+        assertSame(302, $sentRetry->statusCode(), 'Retry on sent notification should redirect safely.');
+        assertSame(
+            $sentBeforeAttempts,
+            $notificationAttemptRepository->countForNotification((int) $sentNotification->toArray()['id']),
+            'Sent notification should not get a new attempt.'
+        );
+
+        $failureRetryBooking = $failingBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2032-01-16',
+            'end_date' => '2032-01-16',
+            'customer_name' => 'Retry Failure Guest ' . $suffix,
+            'customer_email' => 'retry-failure-' . $suffix . '@example.com',
+            'customer_phone' => '070-700 00 16',
+        ]);
+        $failureRetryNotification = notificationForBooking((int) $failureRetryBooking->toArray()['id'], 'booking_created', 'customer');
+        $failureRetryRequest = requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/notifications/' . rawurlencode((string) ($failureRetryNotification->toArray()['public_id'] ?? '')) . '/retry',
+            $adminToken
+        );
+        $failureRetryRequest->setRouteParams([
+            'public_id' => (string) ($failureRetryNotification->toArray()['public_id'] ?? ''),
+        ]);
+        $failureRetryRequest->setAuthenticatedUserId($adminUserId);
+        $failingRetryController = new AdminNotificationController(
+            $notificationRepository,
+            $notificationAttemptRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $failingTransport
+            ),
+            $failingNotificationService,
+            new AuditService()
+        );
+        $failureRetryResponse = $failingRetryController->retry($failureRetryRequest);
+        assertSame(302, $failureRetryResponse->statusCode(), 'Simulated retry failure should redirect safely.');
+        $failureRetryUpdated = $notificationRepository->findByPublicId(
+            (string) ($failureRetryNotification->toArray()['public_id'] ?? '')
+        );
+        assertNotNull($failureRetryUpdated, 'Retry failure notification should remain visible.');
+        assertSame(
+            2,
+            (int) ($failureRetryUpdated->toArray()['attempts_count'] ?? 0),
+            'Simulated retry failure should register a new failed attempt.'
+        );
+        assertSame(0, count($failingTransport->capturedMessages()), 'Development failure transport should not send real mail.');
+
+        $adminBookingList = $router->dispatch(new Request('GET', '/admin/bookings', [], [], $adminCookies, $server));
+        assertSame(200, $adminBookingList->statusCode(), 'Admin booking management should continue to work.');
+
+        $publicItemData = $item->toArray();
+        $publicFormPath = '/items/'
+            . rawurlencode((string) ($publicItemData['public_id'] ?? ''))
+            . '/'
+            . rawurlencode((string) ($publicItemData['slug'] ?? ''))
+            . '/book';
+        assertSame(200, $router->dispatch(new Request('GET', $publicFormPath))->statusCode(), 'Public booking flow should continue to work.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\AdminDashboardController;
 use App\Controllers\AdminAvailabilityBlockController;
 use App\Controllers\AdminBookingController;
+use App\Controllers\AdminNotificationController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
@@ -23,6 +24,7 @@ return static function (Router $router): void {
     $adminAvailabilityBlockController = AdminAvailabilityBlockController::fromConfig();
     $adminBookingController = AdminBookingController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
+    $adminNotificationController = AdminNotificationController::fromConfig();
     $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
     $rentalItemController = RentalItemController::fromConfig();
@@ -97,6 +99,21 @@ return static function (Router $router): void {
     $router->post(
         '/admin/bookings/{public_id}/complete',
         static fn (Request $request): Response => $adminBookingController->complete($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/notifications',
+        static fn (Request $request): Response => $adminNotificationController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/notifications/{public_id}',
+        static fn (Request $request): Response => $adminNotificationController->show($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/notifications/{public_id}/retry',
+        static fn (Request $request): Response => $adminNotificationController->retry($request),
         $systemAdminMiddleware
     );
     $router->get(
