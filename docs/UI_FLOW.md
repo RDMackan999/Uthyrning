@@ -516,6 +516,54 @@ Visar:
 - avtal
 - historik
 
+## Sprint 8A - framtida adminflöde för kunder
+
+Version 1 ska senare kunna ge administratören en enkel kundöversikt utan att bygga kundportal.
+
+Rekommenderat flöde:
+
+```text
+Dashboard
+    ↓
+Kunder
+    ↓
+Kundlista
+    ↓
+Kunddetalj
+    ↓
+Redigera kontakt/status
+```
+
+Kundlistan bör visa:
+
+- namn
+- kundtyp
+- e-post
+- telefon
+- företag när det finns
+- status
+- senaste bokning
+
+Kunddetaljen bör visa:
+
+- kontaktuppgifter
+- kundtyp privat/företag
+- företagskoppling
+- status
+- bokningshistorik
+- framtida avtals- och fakturahistorik när dessa moduler finns
+
+Administratören bör kunna:
+
+- redigera namn, e-post och telefon
+- koppla eller justera företagsdata
+- aktivera, inaktivera eller blockera kund
+- se dubblettvarningar för samma normaliserade e-post inom organization
+
+Intern kundnotering ska visas separat från kundens bokningskommentar. Intern notering får aldrig visas publikt, skickas i e-post eller kopieras till booking snapshot.
+
+Kundportal, kundlogin, BankID, automatiserad merge, avancerad CRM och marketing ska inte ingå i första kundadminflödet.
+
 ---
 
 # Service

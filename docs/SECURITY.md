@@ -339,6 +339,20 @@ Principer:
 
 Personuppgifter ska endast sparas när de behövs.
 
+## Kunddata
+
+Kundregistret ska följa dataminimering.
+
+Regler:
+
+- `Customer` ska bara innehålla uppgifter som behövs för kundrelation, bokning, avtal, kontakt och eventuell fakturering.
+- Booking customer snapshot ska bevara historisk bokningskontakt men inte användas som aktuell kundprofil.
+- Interna kundanteckningar får aldrig visas publikt, skickas i e-post, exponeras i kundportal eller kopieras till booking snapshot.
+- Kunddata får inte delas mellan uthyrande organization utan uttryckligt dokumenterat stöd.
+- Automatisk matchning får inte slå ihop kunder mellan olika organization.
+- Personnummer, kreditinformation och marknadsföringssamtycke får inte läggas till utan separat dokumenterat behov.
+- Blockerade eller arkiverade kunder ska bevara nödvändig historik, men persondata ska kunna anonymiseras enligt framtida retentionregler.
+
 ---
 
 # Anonymisering
