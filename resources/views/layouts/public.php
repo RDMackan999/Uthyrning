@@ -2,6 +2,7 @@
 
 $pageTitle = is_string($pageTitle ?? null) && $pageTitle !== '' ? $pageTitle : 'Uthyrning';
 $content = is_string($content ?? null) ? $content : '';
+$publicScripts = is_array($publicScripts ?? null) ? $publicScripts : [];
 
 $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 ?>
@@ -303,12 +304,12 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             border: 1px solid #dce3ee;
             border-radius: 8px;
             display: grid;
-            gap: 0.85rem;
+            gap: 1rem;
             padding: 1rem;
         }
 
         .public-calendar-header {
-            align-items: baseline;
+            align-items: center;
             display: flex;
             flex-wrap: wrap;
             gap: 0.5rem 1rem;
@@ -324,6 +325,30 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
         .public-calendar-legend {
             color: #526072;
             font-size: 0.9rem;
+        }
+
+        .public-calendar-nav {
+            align-items: center;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .public-calendar-nav button,
+        .public-calendar-clear {
+            background: #ffffff;
+            border: 1px solid #b9c6d8;
+            border-radius: 6px;
+            color: #172033;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            min-height: 2.4rem;
+            padding: 0.45rem 0.7rem;
+        }
+
+        .public-calendar-nav button[disabled] {
+            cursor: not-allowed;
+            opacity: 0.45;
         }
 
         .public-calendar-legend {
@@ -357,20 +382,59 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             background: #172033;
         }
 
+        .public-calendar-month {
+            display: grid;
+            gap: 0.65rem;
+        }
+
+        .public-calendar-month[hidden] {
+            display: none;
+        }
+
+        .public-calendar-month h3 {
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .public-calendar-weekdays,
         .public-calendar-grid {
             display: grid;
             gap: 0.45rem;
             grid-template-columns: repeat(7, minmax(0, 1fr));
         }
 
+        .public-calendar-weekday {
+            color: #526072;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
         .public-calendar-day {
             border: 1px solid #dce3ee;
             border-radius: 6px;
+            color: #172033;
+            cursor: pointer;
             display: grid;
             gap: 0.15rem;
             min-height: 3.2rem;
             padding: 0.4rem;
             text-align: center;
+        }
+
+        .public-calendar-empty-day {
+            min-height: 3.2rem;
+        }
+
+        button.public-calendar-day {
+            font: inherit;
+        }
+
+        .public-calendar-day:focus-visible,
+        .public-calendar-nav button:focus-visible,
+        .public-calendar-clear:focus-visible {
+            outline: 3px solid #8aa0bd;
+            outline-offset: 2px;
         }
 
         .public-calendar-day span {
@@ -385,12 +449,56 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
         .public-calendar-day.is-unavailable {
             background: #fff4f4;
             border-color: #f1b7b7;
+            cursor: not-allowed;
             color: #7a1520;
         }
 
-        .public-calendar-day.is-selected {
+        .public-calendar-day.is-today {
+            box-shadow: inset 0 0 0 2px #8aa0bd;
+        }
+
+        .public-calendar-day.is-selected,
+        .public-calendar-day.is-selected-start,
+        .public-calendar-day.is-selected-end {
             outline: 2px solid #172033;
             outline-offset: 2px;
+        }
+
+        .public-calendar-day.is-selected-range {
+            background: #e8edf5;
+            border-color: #8aa0bd;
+        }
+
+        .public-calendar-day.is-selected-start,
+        .public-calendar-day.is-selected-end {
+            background: #172033;
+            color: #ffffff;
+        }
+
+        .public-calendar-feedback {
+            background: #fff7ed;
+            border: 1px solid #f3c27a;
+            border-radius: 6px;
+            color: #704510;
+            margin: 0;
+            padding: 0.65rem 0.75rem;
+        }
+
+        .public-calendar-feedback:empty {
+            display: none;
+        }
+
+        .public-calendar-selection {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: space-between;
+        }
+
+        .public-calendar-selection p {
+            color: #526072;
+            margin: 0;
         }
 
         .public-field-error {
@@ -457,8 +565,18 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
                 grid-template-columns: 1fr;
             }
 
+            .public-calendar-weekdays,
             .public-calendar-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.25rem;
+            }
+
+            .public-calendar-day {
+                min-height: 3rem;
+                padding: 0.25rem;
+            }
+
+            .public-calendar-day span {
+                font-size: 0.68rem;
             }
         }
     </style>
@@ -475,5 +593,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
     <main class="public-main">
         <?= $content ?>
     </main>
+
+    <?php foreach ($publicScripts as $script): ?>
+        <?php if (is_string($script) && $script !== ''): ?>
+            <script src="<?= $escape($script) ?>" defer></script>
+        <?php endif; ?>
+    <?php endforeach; ?>
 </body>
 </html>

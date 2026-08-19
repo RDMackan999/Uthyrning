@@ -32,6 +32,13 @@ $dailyRateCurrency = $currencyCode($item['daily_rate_currency'] ?? 'SEK');
 $dailyRate = $formatAmount($item['daily_rate_amount'] ?? null) . ' ' . $dailyRateCurrency . '/dag';
 $depositAmount = $item['deposit_amount'] ?? null;
 $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
+$calendarMonths = is_array($availabilityCalendar['months'] ?? null) ? $availabilityCalendar['months'] : [];
+$calendarWeekdays = is_array($availabilityCalendar['weekdays'] ?? null) ? $availabilityCalendar['weekdays'] : [];
+$activeMonthIndex = is_numeric($availabilityCalendar['active_month_index'] ?? null)
+    ? (int) $availabilityCalendar['active_month_index']
+    : 0;
+$minDate = $stringValue($availabilityCalendar['min_date'] ?? '');
+$maxDate = $stringValue($availabilityCalendar['max_date'] ?? '');
 ?>
 <section>
     <p class="public-back-link">
@@ -51,15 +58,29 @@ $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
                 <p class="public-form-error"><?= $escape($errors['form']) ?></p>
             <?php endif; ?>
 
-            <?php if (isset($availabilityCalendar['days']) && is_array($availabilityCalendar['days'])): ?>
-                <div class="public-calendar" aria-label="Tillg&auml;nglighetskalender">
+            <?php if ($calendarMonths !== []): ?>
+                <div
+                    class="public-calendar"
+                    data-booking-calendar
+                    data-min-date="<?= $escape($minDate) ?>"
+                    data-max-date="<?= $escape($maxDate) ?>"
+                    data-active-month="<?= $escape((string) $activeMonthIndex) ?>"
+                    aria-label="Tillg&auml;nglighetskalender"
+                >
                     <div class="public-calendar-header">
-                        <h2>Tillg&auml;nglighet</h2>
-                        <p>
-                            <?= $escape($availabilityCalendar['from_date'] ?? '') ?>
-                            -
-                            <?= $escape($availabilityCalendar['to_date'] ?? '') ?>
-                        </p>
+                        <div>
+                            <h2>Tillg&auml;nglighet</h2>
+                            <p>
+                                <?= $escape($minDate) ?>
+                                -
+                                <?= $escape($maxDate) ?>
+                            </p>
+                        </div>
+
+                        <div class="public-calendar-nav" aria-label="Kalendernavigation">
+                            <button type="button" data-calendar-prev>F&ouml;reg&aring;ende</button>
+                            <button type="button" data-calendar-next>N&auml;sta</button>
+                        </div>
                     </div>
 
                     <div class="public-calendar-legend" aria-label="F&ouml;rklaring">
@@ -68,25 +89,72 @@ $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
                         <span><span class="public-calendar-dot selected"></span> Valt datum</span>
                     </div>
 
-                    <div class="public-calendar-grid" role="list">
-                        <?php foreach ($availabilityCalendar['days'] as $day): ?>
-                            <?php
-                            $isAvailable = (bool) ($day['is_available'] ?? false);
-                            $isSelected = (bool) ($day['is_selected'] ?? false);
-                            $classes = 'public-calendar-day '
-                                . ($isAvailable ? 'is-available' : 'is-unavailable')
-                                . ($isSelected ? ' is-selected' : '');
-                            ?>
-                            <span
-                                class="<?= $escape($classes) ?>"
-                                role="listitem"
-                                aria-disabled="<?= $isAvailable ? 'false' : 'true' ?>"
-                                aria-label="<?= $escape($day['aria_label'] ?? '') ?>"
-                            >
-                                <strong><?= $escape($day['day_label'] ?? '') ?></strong>
-                                <span><?= $isAvailable ? 'Ledigt' : 'Ej tillg&auml;ngligt' ?></span>
-                            </span>
-                        <?php endforeach; ?>
+                    <p
+                        id="booking-calendar-feedback"
+                        class="public-calendar-feedback"
+                        data-calendar-feedback
+                        role="status"
+                        aria-live="polite"
+                    ></p>
+
+                    <?php foreach ($calendarMonths as $monthIndex => $month): ?>
+                        <?php
+                        $monthDays = is_array($month['days'] ?? null) ? $month['days'] : [];
+                        $isActiveMonth = $monthIndex === $activeMonthIndex;
+                        $leadingEmptyDays = is_numeric($month['leading_empty_days'] ?? null)
+                            ? (int) $month['leading_empty_days']
+                            : 0;
+                        ?>
+                        <div
+                            class="public-calendar-month"
+                            data-calendar-month="<?= $escape((string) $monthIndex) ?>"
+                            <?= $isActiveMonth ? '' : 'hidden' ?>
+                        >
+                            <h3><?= $escape($month['label'] ?? '') ?></h3>
+
+                            <div class="public-calendar-weekdays" aria-hidden="true">
+                                <?php foreach ($calendarWeekdays as $weekday): ?>
+                                    <span class="public-calendar-weekday"><?= $escape($weekday) ?></span>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <div class="public-calendar-grid" role="list">
+                                <?php for ($emptyDay = 0; $emptyDay < $leadingEmptyDays; $emptyDay++): ?>
+                                    <span class="public-calendar-empty-day" aria-hidden="true"></span>
+                                <?php endfor; ?>
+
+                                <?php foreach ($monthDays as $day): ?>
+                                    <?php
+                                    $isAvailable = (bool) ($day['is_available'] ?? false);
+                                    $isSelected = (bool) ($day['is_selected'] ?? false);
+                                    $classes = 'public-calendar-day '
+                                        . ($isAvailable ? 'is-available' : 'is-unavailable')
+                                        . ((bool) ($day['is_today'] ?? false) ? ' is-today' : '')
+                                        . ($isSelected ? ' is-selected' : '')
+                                        . ((bool) ($day['is_selected_start'] ?? false) ? ' is-selected-start' : '')
+                                        . ((bool) ($day['is_selected_end'] ?? false) ? ' is-selected-end' : '');
+                                    $statusText = $isAvailable ? 'Ledigt' : 'Ej tillg&auml;ngligt';
+                                    ?>
+                                    <button
+                                        type="button"
+                                        class="<?= $escape($classes) ?>"
+                                        role="listitem"
+                                        data-calendar-date="<?= $escape($day['date'] ?? '') ?>"
+                                        data-calendar-available="<?= $isAvailable ? '1' : '0' ?>"
+                                        aria-disabled="<?= $isAvailable ? 'false' : 'true' ?>"
+                                        aria-label="<?= $escape($day['aria_label'] ?? '') ?>"
+                                    >
+                                        <strong><?= $escape($day['day_label'] ?? '') ?></strong>
+                                        <span data-calendar-day-status><?= $statusText ?></span>
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+
+                    <div class="public-calendar-selection">
+                        <p data-calendar-selection>Inget datum valt.</p>
+                        <button class="public-calendar-clear" type="button" data-calendar-clear>Rensa datumval</button>
                     </div>
                 </div>
             <?php endif; ?>
@@ -98,7 +166,10 @@ $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
                         id="booking-start-date"
                         name="start_date"
                         type="date"
+                        min="<?= $escape($minDate) ?>"
+                        max="<?= $escape($maxDate) ?>"
                         value="<?= $escape($data['start_date'] ?? '') ?>"
+                        aria-describedby="booking-calendar-feedback"
                         required
                     >
                     <?= $fieldError($errors, 'start_date') ?>
@@ -110,7 +181,10 @@ $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
                         id="booking-end-date"
                         name="end_date"
                         type="date"
+                        min="<?= $escape($minDate) ?>"
+                        max="<?= $escape($maxDate) ?>"
                         value="<?= $escape($data['end_date'] ?? '') ?>"
+                        aria-describedby="booking-calendar-feedback"
                         required
                     >
                     <?= $fieldError($errors, 'end_date') ?>

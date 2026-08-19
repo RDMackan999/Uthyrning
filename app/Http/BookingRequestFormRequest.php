@@ -16,6 +16,7 @@ final class BookingRequestFormRequest
     private const MAX_PHONE_LENGTH = 50;
     private const MAX_COMPANY_LENGTH = 255;
     private const MAX_COMMENT_LENGTH = 1000;
+    private const MAX_BOOKING_MONTHS = 6;
 
     /**
      * Validate the public booking request form.
@@ -56,8 +57,25 @@ final class BookingRequestFormRequest
             $errors['end_date'] = 'Slutdatum måste vara ett giltigt datum.';
         }
 
-        if ($startDate !== '' && $endDate !== '' && $this->isDate($startDate) && $this->isDate($endDate) && $startDate > $endDate) {
-            $errors['end_date'] = 'Slutdatum måste vara samma dag eller efter startdatum.';
+        if ($startDate !== '' && $endDate !== '' && $this->isDate($startDate) && $this->isDate($endDate)) {
+            $start = $this->date($startDate);
+            $end = $this->date($endDate);
+            $today = new DateTimeImmutable('today');
+            $maxDate = $today->modify('+' . self::MAX_BOOKING_MONTHS . ' months');
+
+            if ($start > $end) {
+                $errors['end_date'] = 'Slutdatum måste vara samma dag eller efter startdatum.';
+            }
+
+            if ($start < $today) {
+                $errors['start_date'] = 'Startdatum kan inte vara tidigare än idag.';
+            }
+
+            if ($end < $today) {
+                $errors['end_date'] = 'Slutdatum kan inte vara tidigare än idag.';
+            } elseif ($end > $maxDate) {
+                $errors['end_date'] = 'Slutdatum ligger utanför bokningsperioden.';
+            }
         }
 
         if ($customerName === '') {
@@ -97,6 +115,17 @@ final class BookingRequestFormRequest
         $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
 
         return $parsed !== false && $parsed->format('Y-m-d') === $date;
+    }
+
+    private function date(string $date): DateTimeImmutable
+    {
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+
+        if ($parsed === false) {
+            return new DateTimeImmutable('today');
+        }
+
+        return $parsed;
     }
 
     private function isValidPhone(string $phone): bool
