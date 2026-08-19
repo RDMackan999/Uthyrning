@@ -229,6 +229,12 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding-top: 1.25rem;
         }
 
+        .admin-form-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
         .status-grid {
             display: grid;
             gap: 1rem;

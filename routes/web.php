@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controllers\AdminDashboardController;
+use App\Controllers\AdminAvailabilityBlockController;
 use App\Controllers\AdminBookingController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
@@ -19,6 +20,7 @@ use App\Middleware\AuthorizationMiddleware;
 
 return static function (Router $router): void {
     $authController = new AuthController();
+    $adminAvailabilityBlockController = AdminAvailabilityBlockController::fromConfig();
     $adminBookingController = AdminBookingController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
     $publicBookingController = new PublicBookingController();
@@ -120,6 +122,26 @@ return static function (Router $router): void {
     $router->post(
         '/admin/items/{public_id}',
         static fn (Request $request): Response => $rentalItemController->update($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/items/{public_id}/availability',
+        static fn (Request $request): Response => $adminAvailabilityBlockController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/items/{public_id}/availability/create',
+        static fn (Request $request): Response => $adminAvailabilityBlockController->create($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/availability',
+        static fn (Request $request): Response => $adminAvailabilityBlockController->store($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/availability/{id}/archive',
+        static fn (Request $request): Response => $adminAvailabilityBlockController->archive($request),
         $systemAdminMiddleware
     );
     $router->get(

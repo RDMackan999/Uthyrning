@@ -4,6 +4,7 @@ $item = is_array($item ?? null) ? $item : [];
 $data = is_array($data ?? null) ? $data : [];
 $errors = is_array($errors ?? null) ? $errors : [];
 $pricePreview = is_array($pricePreview ?? null) ? $pricePreview : null;
+$availabilityCalendar = is_array($availabilityCalendar ?? null) ? $availabilityCalendar : [];
 $csrfToken = is_string($csrfToken ?? null) ? $csrfToken : '';
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
@@ -48,6 +49,46 @@ $hasDeposit = is_numeric($depositAmount) && (float) $depositAmount > 0.0;
 
             <?php if (isset($errors['form'])): ?>
                 <p class="public-form-error"><?= $escape($errors['form']) ?></p>
+            <?php endif; ?>
+
+            <?php if (isset($availabilityCalendar['days']) && is_array($availabilityCalendar['days'])): ?>
+                <div class="public-calendar" aria-label="Tillg&auml;nglighetskalender">
+                    <div class="public-calendar-header">
+                        <h2>Tillg&auml;nglighet</h2>
+                        <p>
+                            <?= $escape($availabilityCalendar['from_date'] ?? '') ?>
+                            -
+                            <?= $escape($availabilityCalendar['to_date'] ?? '') ?>
+                        </p>
+                    </div>
+
+                    <div class="public-calendar-legend" aria-label="F&ouml;rklaring">
+                        <span><span class="public-calendar-dot available"></span> Ledigt</span>
+                        <span><span class="public-calendar-dot unavailable"></span> Ej tillg&auml;ngligt</span>
+                        <span><span class="public-calendar-dot selected"></span> Valt datum</span>
+                    </div>
+
+                    <div class="public-calendar-grid" role="list">
+                        <?php foreach ($availabilityCalendar['days'] as $day): ?>
+                            <?php
+                            $isAvailable = (bool) ($day['is_available'] ?? false);
+                            $isSelected = (bool) ($day['is_selected'] ?? false);
+                            $classes = 'public-calendar-day '
+                                . ($isAvailable ? 'is-available' : 'is-unavailable')
+                                . ($isSelected ? ' is-selected' : '');
+                            ?>
+                            <span
+                                class="<?= $escape($classes) ?>"
+                                role="listitem"
+                                aria-disabled="<?= $isAvailable ? 'false' : 'true' ?>"
+                                aria-label="<?= $escape($day['aria_label'] ?? '') ?>"
+                            >
+                                <strong><?= $escape($day['day_label'] ?? '') ?></strong>
+                                <span><?= $isAvailable ? 'Ledigt' : 'Ej tillg&auml;ngligt' ?></span>
+                            </span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
             <?php endif; ?>
 
             <div class="public-form-grid">

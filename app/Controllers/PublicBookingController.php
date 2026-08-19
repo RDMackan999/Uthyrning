@@ -14,6 +14,7 @@ use App\Core\Response;
 use App\Http\BookingRequestFormRequest;
 use App\Models\RentalItem;
 use App\Repositories\RentalItemRepository;
+use App\Services\AvailabilityCalendarService;
 use App\Services\BookingPricingService;
 use App\Services\BookingService;
 use Throwable;
@@ -33,6 +34,7 @@ final class PublicBookingController extends BaseController
         private readonly BookingService $bookingService = new BookingService(),
         private readonly BookingRequestFormRequest $formRequest = new BookingRequestFormRequest(),
         private readonly BookingPricingService $pricingService = new BookingPricingService(),
+        private readonly AvailabilityCalendarService $calendarService = new AvailabilityCalendarService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -135,6 +137,7 @@ final class PublicBookingController extends BaseController
     {
         $itemData = $item->toArray();
         $pricePreview = null;
+        $availabilityCalendar = $this->availabilityCalendar($item, $data);
 
         if ($this->stringValue($data['start_date'] ?? '') !== '' && $this->stringValue($data['end_date'] ?? '') !== '') {
             try {
@@ -156,7 +159,30 @@ final class PublicBookingController extends BaseController
             'errors' => $errors,
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
             'pricePreview' => $pricePreview,
+            'availabilityCalendar' => $availabilityCalendar,
         ]);
+    }
+
+    /**
+     * Build public-safe availability data for the booking form.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function availabilityCalendar(RentalItem $item, array $data): array
+    {
+        $itemData = $item->toArray();
+
+        try {
+            return $this->calendarService->publicMonth(
+                (int) ($itemData['organization_id'] ?? 0),
+                (int) ($itemData['id'] ?? 0),
+                $this->stringValue($data['start_date'] ?? null),
+                $this->stringValue($data['end_date'] ?? null)
+            );
+        } catch (Throwable) {
+            return [];
+        }
     }
 
     private function itemFromRoute(Request $request): RentalItem

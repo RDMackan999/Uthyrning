@@ -299,6 +299,100 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding: 0.75rem;
         }
 
+        .public-calendar {
+            border: 1px solid #dce3ee;
+            border-radius: 8px;
+            display: grid;
+            gap: 0.85rem;
+            padding: 1rem;
+        }
+
+        .public-calendar-header {
+            align-items: baseline;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            justify-content: space-between;
+        }
+
+        .public-calendar-header h2,
+        .public-calendar-header p {
+            margin: 0;
+        }
+
+        .public-calendar-header p,
+        .public-calendar-legend {
+            color: #526072;
+            font-size: 0.9rem;
+        }
+
+        .public-calendar-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .public-calendar-legend span {
+            align-items: center;
+            display: inline-flex;
+            gap: 0.35rem;
+        }
+
+        .public-calendar-dot {
+            border-radius: 999px;
+            display: inline-block;
+            height: 0.7rem;
+            width: 0.7rem;
+        }
+
+        .public-calendar-dot.available {
+            background: #2f7d50;
+        }
+
+        .public-calendar-dot.unavailable {
+            background: #9f1d1d;
+        }
+
+        .public-calendar-dot.selected {
+            background: #172033;
+        }
+
+        .public-calendar-grid {
+            display: grid;
+            gap: 0.45rem;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+
+        .public-calendar-day {
+            border: 1px solid #dce3ee;
+            border-radius: 6px;
+            display: grid;
+            gap: 0.15rem;
+            min-height: 3.2rem;
+            padding: 0.4rem;
+            text-align: center;
+        }
+
+        .public-calendar-day span {
+            font-size: 0.72rem;
+        }
+
+        .public-calendar-day.is-available {
+            background: #eef6f1;
+            border-color: #c9e6d3;
+        }
+
+        .public-calendar-day.is-unavailable {
+            background: #fff4f4;
+            border-color: #f1b7b7;
+            color: #7a1520;
+        }
+
+        .public-calendar-day.is-selected {
+            outline: 2px solid #172033;
+            outline-offset: 2px;
+        }
+
         .public-field-error {
             font-size: 0.9rem;
             margin: 0;
@@ -361,6 +455,10 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
             .public-form-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .public-calendar-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
     </style>
