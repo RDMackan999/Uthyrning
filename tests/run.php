@@ -5214,6 +5214,7 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
             . '/'
             . rawurlencode((string) ($itemData['slug'] ?? ''))
             . '/book';
+        $usersBeforeGuestBooking = countRows('users');
 
         $firstBooking = $bookingService->createRequest([
             'rental_item_id' => (int) ($itemData['id'] ?? 0),
@@ -5225,6 +5226,7 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
         ]);
         $customerId = (int) ($firstBooking->toArray()['customer_id'] ?? 0);
         assertTrue($customerId > 0, 'Guest booking should create and link a customer.');
+        assertSame($usersBeforeGuestBooking, countRows('users'), 'Guest booking should not create a user.');
         $customer = $customerRepository->findById($customerId);
         $customerData = $customer->toArray();
         assertSame($organizationId, (int) ($customerData['organization_id'] ?? 0), 'Customer should be organization scoped.');
@@ -5264,6 +5266,47 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
             $customerId === (int) ($otherBooking->toArray()['customer_id'] ?? 0),
             'Customer matching must not cross organization boundaries.'
         );
+        assertSame(
+            null,
+            $customerRepository->findByIdForOrganization($customerId, $otherOrganizationId),
+            'Customer repository should reject wrong organization scope.'
+        );
+
+        $phoneOnlyCustomerId = createCustomer($organizationId, 'Phone Only Customer ' . $suffix, 'phone-only-' . $suffix . '@example.com');
+        $pdo->prepare(
+            'UPDATE customers
+             SET phone = :phone,
+                updated_at = UTC_TIMESTAMP()
+             WHERE id = :id'
+        )->execute([
+            'id' => $phoneOnlyCustomerId,
+            'phone' => '070-555 00 00',
+        ]);
+        $phoneOnlyBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemData['id'] ?? 0),
+            'start_date' => '2034-03-04',
+            'end_date' => '2034-03-04',
+            'customer_name' => 'Phone Only Attempt ' . $suffix,
+            'customer_email' => 'phone-only-new-' . $suffix . '@example.com',
+            'customer_phone' => '070-555 00 00',
+        ]);
+        assertFalse(
+            $phoneOnlyCustomerId === (int) ($phoneOnlyBooking->toArray()['customer_id'] ?? 0),
+            'Phone alone should not auto-match customers.'
+        );
+
+        $companyBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemData['id'] ?? 0),
+            'start_date' => '2034-03-05',
+            'end_date' => '2034-03-05',
+            'customer_name' => 'Company Guest ' . $suffix,
+            'customer_email' => 'company-guest-' . $suffix . '@example.com',
+            'customer_phone' => '070-101 20 34',
+            'company_name' => 'Fritextbolaget ' . $suffix,
+        ]);
+        $companyBookingCustomer = $customerRepository->findById((int) ($companyBooking->toArray()['customer_id'] ?? 0));
+        assertSame('company', $companyBookingCustomer->toArray()['customer_type_key'] ?? null, 'Guest with company name should create a company customer type.');
+        assertSame(null, $companyBookingCustomer->toArray()['company_id'] ?? null, 'Free-text company name should not create structured Company automatically.');
 
         $blockedCustomerId = createCustomer($organizationId, 'Blocked Customer ' . $suffix, 'blocked-customer-' . $suffix . '@example.com');
         $pdo->prepare(
@@ -5343,6 +5386,37 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
         assertSame(200, $editResponse->statusCode(), 'Admin should open customer edit form.');
         assertTrue(str_contains($editResponse->content(), 'csrf_token'), 'Customer edit form should include CSRF token.');
 
+        $missingEditCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/customers/' . $customerId,
+            [],
+            [
+                'name' => 'Missing CSRF ' . $suffix,
+                'email' => 'missing-csrf-' . $suffix . '@example.com',
+                'customer_type_key' => 'private',
+            ],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $missingEditCsrf->statusCode(), 'Customer edit should require CSRF and render a safe error.');
+        assertSame('Guest Customer ' . $suffix, $customerRepository->findById($customerId)->toArray()['name'] ?? null, 'Missing edit CSRF should not update customer.');
+
+        $otherCompanyId = createCompany($otherOrganizationId, 'Fel organisation ' . $suffix);
+        $crossTenantCompanyResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/customers/' . $customerId,
+            $adminToken,
+            [
+                'name' => 'Cross Tenant Company ' . $suffix,
+                'email' => 'cross-tenant-company-' . $suffix . '@example.com',
+                'phone' => '070-999 88 76',
+                'customer_type_key' => 'company',
+                'company_id' => (string) $otherCompanyId,
+            ]
+        ));
+        assertSame(200, $crossTenantCompanyResponse->statusCode(), 'Cross-tenant company relation should be rejected in edit form.');
+        assertSame(null, $customerRepository->findById($customerId)->toArray()['company_id'] ?? null, 'Rejected company scope should not change customer.');
+
         $updateResponse = $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
             '/admin/customers/' . $customerId,
@@ -5365,6 +5439,32 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
 
         $snapshotStatement->execute(['booking_id' => (int) ($firstBooking->toArray()['id'] ?? 0)]);
         assertSame($snapshotBefore, $snapshotStatement->fetch(PDO::FETCH_ASSOC), 'Customer updates should not mutate booking snapshot.');
+        $customerNotification = notificationForBooking((int) ($firstBooking->toArray()['id'] ?? 0), 'booking_created', 'customer');
+        assertSame(
+            'guest.customer.' . $suffix . '@example.com',
+            $customerNotification->toArray()['recipient_email_normalized'] ?? null,
+            'Booking notifications should keep snapshot recipient after customer edits.'
+        );
+
+        $missingStatusCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/customers/' . $customerId . '/status',
+            [],
+            ['status_key' => 'inactive'],
+            $adminCookies,
+            $server
+        ));
+        assertSame(302, $missingStatusCsrf->statusCode(), 'Customer status should require CSRF.');
+        assertSame('active', $customerRepository->findById($customerId)->toArray()['status_key'] ?? null, 'Missing status CSRF should not update status.');
+
+        $invalidStatusResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/customers/' . $customerId . '/status',
+            $adminToken,
+            ['status_key' => 'unexpected']
+        ));
+        assertSame(302, $invalidStatusResponse->statusCode(), 'Arbitrary customer status should be rejected.');
+        assertSame('active', $customerRepository->findById($customerId)->toArray()['status_key'] ?? null, 'Invalid status should not update customer.');
 
         $statusResponse = $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
@@ -5374,6 +5474,14 @@ $runner->test('customer foundation connects guest bookings and admin manages cus
         ));
         assertSame(302, $statusResponse->statusCode(), 'Customer status update should redirect after success.');
         assertSame('blocked', $customerRepository->findById($customerId)->toArray()['status_key'] ?? null, 'Customer status should update.');
+        $archivedCustomerId = createCustomer($organizationId, 'Archived Customer ' . $suffix, 'archived-' . $suffix . '@example.com');
+        assertTrue($customerRepository->delete($archivedCustomerId), 'Customer repository should soft delete customers.');
+        assertSame(
+            0,
+            $customerRepository->findAllForAdmin(null, 'Archived Customer ' . $suffix)->count(),
+            'Soft-deleted customers should be excluded from normal admin listing.'
+        );
+        assertTrue(auditCount('customer_created', 'customer') >= 1, 'Customer creation from guest booking should be audited.');
         assertTrue(auditCount('customer_updated', 'customer') >= 1, 'Customer update should be audited.');
         assertTrue(auditCount('customer_status_changed', 'customer') >= 1, 'Customer status update should be audited.');
         assertSame($adminUserId, $adminSession['user_id'], 'Admin actor fixture should remain valid.');

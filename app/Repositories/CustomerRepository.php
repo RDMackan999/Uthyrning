@@ -93,13 +93,18 @@ final class CustomerRepository extends BaseRepository
 
         if ($search !== null) {
             $where .= ' AND (
-                customers.name LIKE :query
-                OR customers.email_normalized LIKE :query
-                OR customers.phone LIKE :query
-                OR companies.name LIKE :query
-                OR organizations.name LIKE :query
+                customers.name LIKE :query_name
+                OR customers.email_normalized LIKE :query_email
+                OR customers.phone LIKE :query_phone
+                OR companies.name LIKE :query_company
+                OR organizations.name LIKE :query_organization
             )';
-            $params['query'] = '%' . $search . '%';
+            $query = '%' . $search . '%';
+            $params['query_name'] = $query;
+            $params['query_email'] = $query;
+            $params['query_phone'] = $query;
+            $params['query_company'] = $query;
+            $params['query_organization'] = $query;
         }
 
         $statement = Database::pdo()->prepare(

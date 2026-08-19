@@ -79,7 +79,7 @@ final class CustomerMatchingService
         $customerData = $customer->toArray();
 
         $this->auditService->record(
-            'customer_created_from_booking',
+            'customer_created',
             null,
             'customer',
             (int) ($customerData['id'] ?? 0),
