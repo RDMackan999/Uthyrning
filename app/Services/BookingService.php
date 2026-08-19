@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Core\BookingException;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Models\Booking;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
@@ -23,7 +24,8 @@ final class BookingService
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
         private readonly BookingAvailabilityService $availabilityService = new BookingAvailabilityService(),
         private readonly BookingPricingService $pricingService = new BookingPricingService(),
-        private readonly AuditService $auditService = new AuditService()
+        private readonly AuditService $auditService = new AuditService(),
+        private readonly NotificationService $notificationService = new NotificationService()
     ) {
     }
 
@@ -128,6 +130,8 @@ final class BookingService
                 $pdo->commit();
             }
 
+            $this->notifyBookingCreated($booking);
+
             return $booking;
         } catch (Throwable $exception) {
             if ($startedTransaction && $pdo->inTransaction()) {
@@ -135,6 +139,24 @@ final class BookingService
             }
 
             throw $exception;
+        }
+    }
+
+    private function notifyBookingCreated(Booking $booking): void
+    {
+        try {
+            $this->notificationService->notifyBookingCreated($booking);
+        } catch (Throwable) {
+            $this->logNotificationFailure('Booking notification failed.');
+        }
+    }
+
+    private function logNotificationFailure(string $message): void
+    {
+        try {
+            (new Logger(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs'))
+                ->warning($message);
+        } catch (Throwable) {
         }
     }
 

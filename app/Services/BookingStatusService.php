@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Core\BookingException;
 use App\Core\Database;
+use App\Core\Logger;
 use App\Models\Booking;
 use App\Repositories\BookingRepository;
 use Throwable;
@@ -37,7 +38,8 @@ final class BookingStatusService
 
     public function __construct(
         private readonly BookingRepository $bookingRepository = new BookingRepository(),
-        private readonly AuditService $auditService = new AuditService()
+        private readonly AuditService $auditService = new AuditService(),
+        private readonly NotificationService $notificationService = new NotificationService()
     ) {
     }
 
@@ -109,6 +111,8 @@ final class BookingStatusService
                 $pdo->commit();
             }
 
+            $this->notifyStatusChanged($updated, self::AUDIT_EVENTS[$toStatusKey] ?? null);
+
             return $updated;
         } catch (Throwable $exception) {
             if ($startedTransaction && $pdo->inTransaction()) {
@@ -116,6 +120,32 @@ final class BookingStatusService
             }
 
             throw $exception;
+        }
+    }
+
+    private function notifyStatusChanged(Booking $booking, ?string $eventKey): void
+    {
+        if ($eventKey === null || !in_array($eventKey, [
+            'booking_approved',
+            'booking_rejected',
+            'booking_cancelled',
+        ], true)) {
+            return;
+        }
+
+        try {
+            $this->notificationService->notifyBookingStatusChanged($booking, $eventKey);
+        } catch (Throwable) {
+            $this->logNotificationFailure('Booking status notification failed.');
+        }
+    }
+
+    private function logNotificationFailure(string $message): void
+    {
+        try {
+            (new Logger(dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs'))
+                ->warning($message);
+        } catch (Throwable) {
         }
     }
 

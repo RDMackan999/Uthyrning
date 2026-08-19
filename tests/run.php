@@ -8,6 +8,7 @@ use App\Core\Config;
 use App\Core\Database;
 use App\Core\MigrationRunner;
 use App\Core\ModelException;
+use App\Core\NotificationException;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
@@ -21,20 +22,29 @@ use App\Models\BookingItem;
 use App\Models\Category;
 use App\Models\ItemAvailabilityBlock;
 use App\Models\ItemRate;
+use App\Models\Notification;
 use App\Models\RentalItem;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
 use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\ItemRateRepository;
+use App\Repositories\NotificationAttemptRepository;
+use App\Repositories\NotificationRepository;
 use App\Repositories\RentalItemRepository;
 use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
 use App\Services\BookingAvailabilityService;
 use App\Services\AvailabilityCalendarService;
+use App\Services\AuditService;
 use App\Services\BookingPricingService;
 use App\Services\BookingService;
 use App\Services\BookingStatusService;
+use App\Services\Email\DevelopmentEmailTransport;
+use App\Services\Email\EmailMessage;
+use App\Services\NotificationDispatcher;
+use App\Services\NotificationService;
+use App\Services\NotificationTemplateService;
 use App\Services\RentalItemPublicationService;
 use App\Services\SessionService;
 
@@ -461,6 +471,78 @@ function createBookableRentalItem(
     return $item;
 }
 
+function setOrganizationEmail(int $organizationId, string $email): void
+{
+    $statement = pdo()->prepare(
+        'UPDATE organizations
+         SET email = :email,
+            updated_at = UTC_TIMESTAMP()
+         WHERE id = :organization_id'
+    );
+    $statement->execute([
+        'organization_id' => $organizationId,
+        'email' => $email,
+    ]);
+}
+
+function notificationForBooking(int $bookingId, string $eventKey, string $recipientType): Notification
+{
+    $statement = pdo()->prepare(
+        'SELECT * FROM notifications
+         WHERE booking_id = :booking_id
+            AND event_key = :event_key
+            AND recipient_type = :recipient_type
+         ORDER BY id ASC
+         LIMIT 1'
+    );
+    $statement->execute([
+        'booking_id' => $bookingId,
+        'event_key' => $eventKey,
+        'recipient_type' => $recipientType,
+    ]);
+
+    $row = $statement->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) {
+        throw new RuntimeException('Notification not found.');
+    }
+
+    return new Notification($row);
+}
+
+function notificationCountForBooking(int $bookingId, string $eventKey, string $recipientType): int
+{
+    $statement = pdo()->prepare(
+        'SELECT COUNT(*)
+         FROM notifications
+         WHERE booking_id = :booking_id
+            AND event_key = :event_key
+            AND recipient_type = :recipient_type'
+    );
+    $statement->execute([
+        'booking_id' => $bookingId,
+        'event_key' => $eventKey,
+        'recipient_type' => $recipientType,
+    ]);
+
+    return (int) $statement->fetchColumn();
+}
+
+function auditCount(string $eventName, string $subjectType): int
+{
+    $statement = pdo()->prepare(
+        'SELECT COUNT(*)
+         FROM audit_logs
+         WHERE event_name = :event_name
+            AND subject_type = :subject_type'
+    );
+    $statement->execute([
+        'event_name' => $eventName,
+        'subject_type' => $subjectType,
+    ]);
+
+    return (int) $statement->fetchColumn();
+}
+
 $runner = new TestRunner();
 $migrationRunner = new MigrationRunner($basePath);
 $seederRunner = new SeederRunner($basePath);
@@ -534,6 +616,395 @@ $runner->test('migrations create manual availability block foundation table', st
     assertTrue(foreignKeyExists('blocked_periods', 'organizations'), 'blocked_periods should reference organizations.');
     assertTrue(foreignKeyExists('blocked_periods', 'rental_items'), 'blocked_periods should reference rental_items.');
     assertTrue(foreignKeyExists('blocked_periods', 'users'), 'blocked_periods should reference users.');
+});
+
+$runner->test('migrations create notification foundation tables', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    assertTrue(tableExists('notifications'), 'notifications table should exist.');
+    assertTrue(tableExists('notification_attempts'), 'notification_attempts table should exist.');
+
+    foreach ([
+        'id',
+        'public_id',
+        'organization_id',
+        'booking_id',
+        'event_key',
+        'channel_key',
+        'recipient_type',
+        'recipient_email',
+        'recipient_email_normalized',
+        'template_key',
+        'subject',
+        'status_key',
+        'idempotency_key',
+        'attempts_count',
+        'max_attempts',
+        'last_error_code',
+        'last_error_summary',
+        'scheduled_at',
+        'sent_at',
+        'failed_at',
+        'created_at',
+        'updated_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('notifications'), true), $column . ' should exist on notifications.');
+    }
+
+    foreach ([
+        'id',
+        'notification_id',
+        'attempt_number',
+        'transport_key',
+        'status_key',
+        'error_code',
+        'error_summary',
+        'attempted_at',
+        'created_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('notification_attempts'), true), $column . ' should exist on notification_attempts.');
+    }
+
+    assertTrue(indexExists('notifications', 'uniq_notifications_idempotency_key'), 'Notification idempotency index missing.');
+    assertTrue(indexExists('notifications', 'idx_notifications_booking_event'), 'Notification booking event index missing.');
+    assertTrue(indexExists('notifications', 'idx_notifications_status_scheduled'), 'Notification status scheduled index missing.');
+    assertTrue(indexExists('notification_attempts', 'uniq_notification_attempts_notification_attempt'), 'Attempt unique index missing.');
+    assertTrue(foreignKeyExists('notifications', 'organizations'), 'notifications should reference organizations.');
+    assertTrue(foreignKeyExists('notifications', 'bookings'), 'notifications should reference bookings.');
+    assertTrue(foreignKeyExists('notification_attempts', 'notifications'), 'notification_attempts should reference notifications.');
+    assertFalse(columnDataType('notifications', 'event_key') === 'enum', 'Notification events should not use ENUM.');
+    assertFalse(columnDataType('notifications', 'status_key') === 'enum', 'Notification statuses should not use ENUM.');
+    assertFalse(columnDataType('notification_attempts', 'status_key') === 'enum', 'Attempt statuses should not use ENUM.');
+});
+
+$runner->test('booking_created creates idempotent customer and admin notifications', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Notification Org ' . $suffix, 'notification-org-' . $suffix);
+        setOrganizationEmail($organizationId, 'notify-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for notification tests.');
+        $item = createBookableRentalItem(
+            $organizationId,
+            (int) $globalCategory->toArray()['id'],
+            'notification-item-' . $suffix,
+            'Notification Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+
+        $transport = new DevelopmentEmailTransport();
+        $notificationRepository = new NotificationRepository();
+        $notificationAttemptRepository = new NotificationAttemptRepository();
+        $templateService = new NotificationTemplateService();
+        $notificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $transport
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $service = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $notificationService
+        );
+
+        $booking = $service->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2031-01-10',
+            'end_date' => '2031-01-11',
+            'customer_name' => '<script>alert(1)</script>',
+            'customer_email' => 'Snapshot.Customer+' . $suffix . '@Example.COM',
+            'customer_phone' => '070-100 10 10',
+            'internal_note' => 'Secret internal note should not be mailed.',
+        ]);
+        $bookingId = (int) $booking->toArray()['id'];
+
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_created', 'customer'), 'Customer notification should be created once.');
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_created', 'admin'), 'Admin notification should be created once.');
+
+        $customerNotification = notificationForBooking($bookingId, 'booking_created', 'customer');
+        $customerData = $customerNotification->toArray();
+        assertSame('snapshot.customer+' . $suffix . '@example.com', $customerData['recipient_email_normalized'] ?? null, 'Customer recipient should come from booking snapshot.');
+        assertSame('sent', $customerData['status_key'] ?? null, 'Customer notification should be sent by development transport.');
+        assertSame(1, (int) ($customerData['attempts_count'] ?? 0), 'Customer notification should have one attempt.');
+
+        $adminNotification = notificationForBooking($bookingId, 'booking_created', 'admin');
+        assertSame('notify-' . $suffix . '@example.com', $adminNotification->toArray()['recipient_email_normalized'] ?? null, 'Admin recipient should come from organization email.');
+        assertSame(2, count($transport->capturedMessages()), 'Development transport should capture two messages.');
+
+        $customerBody = $transport->capturedMessages()[0]->htmlBody;
+        assertTrue(str_contains($customerBody, (string) $booking->toArray()['public_id']), 'Customer email should include public booking reference.');
+        assertTrue(str_contains($customerBody, '&lt;script&gt;alert(1)&lt;/script&gt;'), 'Customer email should escape HTML data.');
+        assertFalse(str_contains($customerBody, '<script>alert(1)</script>'), 'Customer email should not render raw HTML data.');
+        assertFalse(str_contains($customerBody, 'Secret internal note'), 'Customer email should not include internal notes.');
+
+        $notificationService->notifyBookingCreated($booking);
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_created', 'customer'), 'Customer idempotency should prevent duplicates.');
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_created', 'admin'), 'Admin idempotency should prevent duplicates.');
+        assertSame(2, count($transport->capturedMessages()), 'Sent notifications should not be sent again when idempotency finds sent records.');
+        assertTrue(auditCount('notification_created', 'notification') >= 2, 'Notification creation should be audited.');
+        assertTrue(auditCount('notification_sent', 'notification') >= 2, 'Notification sent should be audited.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('booking status transitions create customer notifications only for V1 email events', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Status Notification Org ' . $suffix, 'status-notification-org-' . $suffix);
+        setOrganizationEmail($organizationId, 'status-notify-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for status notification tests.');
+        $item = createBookableRentalItem(
+            $organizationId,
+            (int) $globalCategory->toArray()['id'],
+            'status-notification-item-' . $suffix,
+            'Status Notification Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemId = (int) $item->toArray()['id'];
+
+        $transport = new DevelopmentEmailTransport();
+        $notificationRepository = new NotificationRepository();
+        $notificationAttemptRepository = new NotificationAttemptRepository();
+        $templateService = new NotificationTemplateService();
+        $notificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $transport
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $service = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $notificationService
+        );
+        $statusService = new BookingStatusService($bookingRepository, new AuditService(), $notificationService);
+
+        $approvedBooking = $service->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2031-02-10',
+            'end_date' => '2031-02-10',
+            'customer_name' => 'Approved Guest',
+            'customer_email' => 'approved-' . $suffix . '@example.com',
+            'customer_phone' => '070-200 20 10',
+        ]);
+        $approved = $statusService->transition($organizationId, (int) $approvedBooking->toArray()['id'], 'approved');
+        assertSame('approved', $approved->toArray()['status_key'] ?? null, 'Booking should be approved.');
+        assertSame(1, notificationCountForBooking((int) $approvedBooking->toArray()['id'], 'booking_approved', 'customer'), 'Approved notification should be created.');
+
+        $rejectedBooking = $service->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2031-02-11',
+            'end_date' => '2031-02-11',
+            'customer_name' => 'Rejected Guest',
+            'customer_email' => 'rejected-' . $suffix . '@example.com',
+            'customer_phone' => '070-200 20 11',
+        ]);
+        $statusService->transition($organizationId, (int) $rejectedBooking->toArray()['id'], 'rejected');
+        assertSame(1, notificationCountForBooking((int) $rejectedBooking->toArray()['id'], 'booking_rejected', 'customer'), 'Rejected notification should be created.');
+
+        $cancelledBooking = $service->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2031-02-12',
+            'end_date' => '2031-02-12',
+            'customer_name' => 'Cancelled Guest',
+            'customer_email' => 'cancelled-' . $suffix . '@example.com',
+            'customer_phone' => '070-200 20 12',
+        ]);
+        $statusService->transition($organizationId, (int) $cancelledBooking->toArray()['id'], 'cancelled');
+        assertSame(1, notificationCountForBooking((int) $cancelledBooking->toArray()['id'], 'booking_cancelled', 'customer'), 'Cancelled notification should be created.');
+
+        $completedBooking = $service->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2031-02-13',
+            'end_date' => '2031-02-13',
+            'customer_name' => 'Completed Guest',
+            'customer_email' => 'completed-' . $suffix . '@example.com',
+            'customer_phone' => '070-200 20 13',
+        ]);
+        $statusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'approved');
+        $statusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'active');
+        $statusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'completed');
+        assertSame(0, notificationCountForBooking((int) $completedBooking->toArray()['id'], 'booking_started', 'customer'), 'Started event should not create V1 email notification.');
+        assertSame(0, notificationCountForBooking((int) $completedBooking->toArray()['id'], 'booking_completed', 'customer'), 'Completed event should not create V1 email notification.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('notification failure retries do not roll back booking or status changes', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Failure Notification Org ' . $suffix, 'failure-notification-org-' . $suffix);
+        setOrganizationEmail($organizationId, 'failure-notify-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for failure notification tests.');
+        $item = createBookableRentalItem(
+            $organizationId,
+            (int) $globalCategory->toArray()['id'],
+            'failure-notification-item-' . $suffix,
+            'Failure Notification Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+
+        $transport = new DevelopmentEmailTransport(true);
+        $notificationRepository = new NotificationRepository();
+        $notificationAttemptRepository = new NotificationAttemptRepository();
+        $templateService = new NotificationTemplateService();
+        $dispatcher = new NotificationDispatcher(
+            $notificationRepository,
+            $notificationAttemptRepository,
+            $templateService,
+            new AuditService(),
+            $transport
+        );
+        $notificationService = new NotificationService(
+            $notificationRepository,
+            $dispatcher,
+            $templateService,
+            new AuditService()
+        );
+        $service = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $notificationService
+        );
+        $statusService = new BookingStatusService($bookingRepository, new AuditService(), $notificationService);
+
+        $booking = $service->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2031-03-10',
+            'end_date' => '2031-03-10',
+            'customer_name' => 'Failure Guest',
+            'customer_email' => 'failure-' . $suffix . '@example.com',
+            'customer_phone' => '070-300 30 10',
+        ]);
+        $bookingData = $booking->toArray();
+        $bookingId = (int) $bookingData['id'];
+        assertSame('request', $bookingData['status_key'] ?? null, 'Booking should still be created when email fails.');
+
+        $customerNotification = notificationForBooking($bookingId, 'booking_created', 'customer');
+        assertSame('pending', $customerNotification->toArray()['status_key'] ?? null, 'Failed notification should stay pending while retries remain.');
+        assertSame(1, (int) ($customerNotification->toArray()['attempts_count'] ?? 0), 'First failure should record one attempt.');
+        assertSame(1, $notificationAttemptRepository->countForNotification((int) $customerNotification->toArray()['id']), 'First failure should append one attempt.');
+
+        $notificationService->notifyBookingCreated($booking);
+        $notificationService->notifyBookingCreated($booking);
+        $notificationService->notifyBookingCreated($booking);
+        $customerNotification = notificationForBooking($bookingId, 'booking_created', 'customer');
+        assertSame('failed', $customerNotification->toArray()['status_key'] ?? null, 'Notification should be failed after max attempts.');
+        assertSame(3, (int) ($customerNotification->toArray()['attempts_count'] ?? 0), 'Max three attempts should be respected.');
+        assertSame(3, $notificationAttemptRepository->countForNotification((int) $customerNotification->toArray()['id']), 'Retries should append attempts to the same notification.');
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_created', 'customer'), 'Retries should not create duplicate customer notifications.');
+
+        $updated = $statusService->transition($organizationId, $bookingId, 'approved');
+        assertSame('approved', $updated->toArray()['status_key'] ?? null, 'Status change should remain valid when email fails.');
+        assertSame(1, notificationCountForBooking($bookingId, 'booking_approved', 'customer'), 'Approved failure should still create one logical notification.');
+        assertTrue(auditCount('notification_failed', 'notification') >= 1, 'Notification failure should be audited.');
+        assertSame(0, count($transport->capturedMessages()), 'Development failure transport should not send real or captured success email.');
+
+        assertThrows(
+            static fn (): mixed => (new DevelopmentEmailTransport())->send(new EmailMessage(
+                "bad@example.com\r\nbcc:evil@example.com",
+                'Unsafe recipient',
+                '<p>Body</p>',
+                'Body'
+            )),
+            NotificationException::class,
+            'Invalid recipients should be rejected safely.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
 });
 
 $runner->test('item_categories has expected columns only for Sprint 3B', static function (): void {

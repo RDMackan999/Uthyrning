@@ -145,18 +145,23 @@ Routern fångar endast `HttpException` och konverterar dessa till enkla HTTP-res
 
 ### Notifieringslager
 
-Notifieringar ska senare byggas som ett separat applikationslager mellan domänhändelser och transport.
+Sprint 7B introducerar notifieringar som ett separat applikationslager mellan bokningshändelser och transport.
 
-Rekommenderad struktur när implementationen påbörjas:
+Nuvarande struktur:
 
 - `NotificationService` tar emot domänhändelser och skapar notifieringar.
-- `NotificationMessage` beskriver mottagare, ämne, mall och kontext.
 - `NotificationRepository` sparar notifieringar och leveransstatus.
-- `EmailTransport` eller motsvarande gränssnitt skickar eller fångar e-post.
+- `NotificationAttemptRepository` sparar append-only leveransförsök.
+- `NotificationTemplateService` renderar filbaserade PHP-mailmallar.
+- `NotificationDispatcher` renderar mall, anropar transport och uppdaterar status.
+- `EmailTransportInterface` beskriver transportkontraktet.
+- `DevelopmentEmailTransport` fångar meddelanden utan att skicka riktig e-post.
 
 Controllers och bokningsstatuslogik ska inte skicka e-post direkt. De ska anropa domän- eller applikationsservice som först sparar bokningshändelsen och därefter skapar notifiering.
 
 Development och test ska använda en säker testtransport eller mail-capture. Riktiga SMTP-uppgifter får inte finnas i repo.
+
+Extern SMTP, SMS, push, Kivra, worker/kö och mallredigerare ingår inte i Sprint 7B.
 
 ### Tekniska routes
 
