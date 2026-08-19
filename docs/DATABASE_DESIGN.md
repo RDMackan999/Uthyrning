@@ -513,6 +513,147 @@ Framtida utbyggnad:
 
 Risk: duplicerad persondata mellan `users`, `customers` och `customer_contacts`. Definiera tydligt vilken tabell som är identitet, vilken som är affärskund och vilken som är kontaktuppgift.
 
+#### Sprint 8A: Customer Domain Design
+
+Kunddomänen ska skilja mellan säkerhetsidentitet, kundrelation och historisk bokningsdata.
+
+Begrepp:
+
+- `users` är säkerhetsidentiteter. De används för inloggning, sessioner, roller och framtida BankID-koppling.
+- `customers` är affärsrelationer mellan en uthyrande `organization` och en kund. En kundrelation kan finnas utan inloggat användarkonto.
+- `companies` innehåller företagsuppgifter för företagskunder när företaget behöver modelleras mer strukturerat än ett fritextnamn.
+- `booking_customer_snapshots` är immutable historik för kontaktuppgifter som användes vid bokningen.
+
+Rekommendation för Version 1:
+
+- `customers` ska fortsätta vara `organization`-scoped.
+- `customers.customer_type_key` ska skilja `private` och `company`.
+- Privatkund representeras av `customers` utan `company_id`.
+- Företagskund representeras av `customers` med valfri `company_id` när strukturerad företagsrad finns.
+- Företagsnamn från publik bokningsförfrågan får ligga i bokningssnapshot om organisationsnummer saknas eller företaget inte har skapats i kundregistret.
+- Interna noteringar ska ligga i separat `customer_notes` när det byggs, inte i booking snapshot och inte i e-post.
+- Adresser bör ligga i `customer_addresses` när avtal/fakturering kräver dem.
+
+Alternativ för gäst till kund:
+
+1. Gästbokning skapar ingen permanent `Customer`.
+   Fördel: minsta möjliga persondata. Nackdel: sämre adminhistorik, svårare återkommande kunder och svårare kundportal senare.
+2. Gästbokning skapar eller återanvänder `Customer` direkt vid förfrågan.
+   Fördel: stödjer befintlig bokningsimplementation, adminhistorik och framtida kundportal. Nackdel: kundregistret kan växa med förfrågningar som aldrig blir affär.
+3. `Customer` skapas först efter godkänd bokning.
+   Fördel: kundregister innehåller färre svaga relationer. Nackdel: request-flödet får mindre historik och måste uppdatera bokningen senare.
+4. Admin kopplar bokning till `Customer` manuellt senare.
+   Fördel: hög kontroll. Nackdel: mer manuellt arbete och sämre MVP-ergonomi.
+
+Val för Version 1: alternativ 2. Publik gästbokning får skapa eller återanvända en minimal `Customer` inom samma `organization`, samtidigt som `booking_customer_snapshots` alltid bevarar historiska kontaktuppgifter. Detta bekräftar befintlig riktning och kräver ingen kundportal eller inloggning.
+
+Matchningsregler:
+
+- Matchning får endast ske inom samma `organization`.
+- Normaliserad e-post är primär matchningsnyckel för privatkund och kontaktperson.
+- Telefon får användas som stöd eller varning, men ska inte ensam slå ihop kunder automatiskt.
+- Organisationsnummer kan senare användas för företagsmatchning inom samma `organization`.
+- Om flera aktiva kunder matchar samma e-post ska systemet inte välja automatiskt. Admin ska få hantera dubbletten.
+- Blockerade, inaktiva eller soft delete:ade kunder ska inte återanvändas utan uttrycklig administrativ hantering.
+- Ingen global kundmatchning får ske mellan uthyrande organisationer i Version 1.
+
+Customer scope:
+
+- Samma person kan vara kund hos flera uthyrande `organizations` genom separata `customers`-rader.
+- Kundstatus, interna noteringar, relationer, avtal och bokningshistorik ska inte läcka mellan tenants.
+- `system_admin` kan se data över systemet enligt behörighet och auditkrav.
+- Framtida organisationsadmin ska endast se kunder inom sin egen `organization`.
+
+Rekommenderade V1-fält i `customers`:
+
+- `organization_id` obligatorisk.
+- `company_id` nullable.
+- `customer_type_key` obligatorisk, textnyckel och inte ENUM.
+- `name` obligatorisk.
+- `email` nullable men krävs normalt i publikt bokningsflöde.
+- `email_normalized` nullable och ska sättas konsekvent när e-post finns.
+- `phone` nullable men krävs normalt i publikt bokningsflöde.
+- `status_key` obligatorisk, minst `active`, `inactive`, `blocked`.
+- `created_at`, `updated_at`, `deleted_at`.
+
+Fält som bör vänta:
+
+- Fakturaadress och postadress tills avtal/fakturering kräver dem.
+- Personnummer tills BankID/juridiska krav är dokumenterade.
+- Marknadsföringssamtycke tills marketing-scope är beslutat.
+- Kreditlimit, betalningsvillkor och Fortnox-kundnummer tills ekonomi-/Fortnox-sprint.
+- Avancerad CRM-data och segmentering.
+
+Statusmodell:
+
+- `active`: kan användas för nya bokningsförfrågningar och adminhistorik.
+- `inactive`: ska inte föreslås automatiskt för nya bokningsförfrågningar, men historik bevaras.
+- `blocked`: ska inte kunna skicka ny bokningsförfrågan om systemet känner igen kunden. Befintliga bokningar ska bevaras och hanteras manuellt.
+
+En blockerad kund ska senare inte kunna använda kundportal för att skapa nya ärenden eller boka nytt. Om kunden redan har framtida bokningar ska administratör hantera dem manuellt; status får inte automatiskt radera eller ändra historik.
+
+Booking snapshot:
+
+- `booking_customer_snapshots` ska vara immutable efter att bokningen skapats.
+- Ändringar i `customers`, `companies` eller `users` får inte ändra gamla snapshots.
+- Notifieringar för bokningshändelser ska fortsätta använda snapshot som recipient source of truth.
+- Kundens kommentar är bokningsdata, inte intern kundnotering.
+
+`customer_users`:
+
+- En `Customer` kan senare kopplas till flera `users`.
+- En `User` kan senare kopplas till flera `customers`, exempelvis om samma person hyr privat och även företräder företag.
+- Företagskonto med flera användare ska använda både `company_users` för företagsrepresentation och `customer_users` för kundrelation hos en viss uthyrare.
+- Privatkund använder normalt en aktiv `customer_users`-rad, men modellen ska inte hindra fler användare vid exempelvis familj eller ombud.
+- Ingen autentisering eller kundportal byggs i Sprint 8A.
+
+Adminflöde som bör byggas i Sprint 8B:
+
+- Lista kunder inom organisation.
+- Öppna kund.
+- Visa kontaktuppgifter, status, företag och bokningshistorik.
+- Redigera namn, e-post, telefon, kundtyp och företagskoppling.
+- Sätta status `active`, `inactive` eller `blocked`.
+- Visa dubblettvarningar när samma normaliserade e-post finns inom organisation.
+- Hålla interna noteringar separerade från publik bokningsdata.
+
+Sök i Version 1 bör stödja:
+
+- namn
+- normaliserad e-post
+- telefon
+- företagsnamn
+- bokningsreferens via koppling till `bookings`
+
+Audit-händelser som bör stödjas:
+
+- `customer_created`
+- `customer_updated`
+- `customer_status_changed`
+- `customer_linked_to_user`
+- `customer_unlinked_from_user`
+- `customer_company_linked`
+- `customer_note_created`
+- `customer_note_archived`
+
+Audit ska inte kopiera fullständiga interna anteckningar eller onödig persondata. Det räcker normalt med fältnamn, säkra metadata, aktör, organisation och referenser.
+
+Bedömning av befintligt schema inför Sprint 8B:
+
+- `customers`, `customer_users`, `companies`, `users` och `booking_customer_snapshots` räcker som grund för Sprint 8A:s rekommenderade modell.
+- `customers` saknar hård unikhet för `organization_id + email_normalized`. Det är acceptabelt för V1 om repository/service hanterar återanvändning och dubblettvarning.
+- `companies.organization_id` gör företagsdata tenant-scoped, vilket är säkrast för V1 och marknadsplatsisolering.
+- `companies.organization_number` bör inte vara globalt unikt om samma juridiska företag kan vara kund hos flera uthyrande organisationer. Sprint 8B bör granska om unikheten ska vara per `organization_id`.
+- `customer_notes`, `customer_addresses`, `customer_contacts` och `company_contacts` finns i designen men behöver inte byggas förrän admin-, avtal- eller faktureringsflöden kräver dem.
+
+Risker:
+
+- För aggressiv automatisk matchning kan slå ihop fel personer.
+- För svag matchning kan skapa många dubbletter.
+- Global kundmatchning kan läcka affärsrelationer mellan uthyrare.
+- Att lagra företagsnamn både i `companies` och snapshots är avsiktligt för historik, men får inte användas som källa till aktuell företagsdata.
+- Interna kundanteckningar kan innehålla känslig information och behöver tydliga behörigheter, retention och audit.
+
 ### Objekt
 
 Tabeller:
@@ -1631,15 +1772,15 @@ Det är lockande att bygga en extremt flexibel modell för framtida AI, IoT, API
 
 ### Användare och kunder
 
-- Ska kunder skapa konto i Version 1 eller bara skicka bokningsförfrågan?
-- Ska e-post vara globalt unik eller unik per organisation?
-- Ska företag och privatpersoner hanteras i samma kundflöde?
+- Sprint 8A har beslutat att kunder inte behöver konto i Version 1. Gästbokning ska fortsatt tillåtas.
+- Sprint 8A har beslutat att kundmatchning på e-post sker per `organization`. `users.email_normalized` följer fortsatt identitetsmodellens globala inloggningsregel.
+- Sprint 8A har beslutat att företag och privatpersoner hanteras i samma kunddomän genom `customers.customer_type_key`.
 - Vilka roller behövs i Version 1?
 - Vilka behörigheter behöver vara finmaskiga från start?
 - Ska `users.password_hash` vara obligatoriskt, eller ska externa identiteter kunna skapa användare utan lokalt lösenord?
 - Ska rolltilldelningar ligga direkt i `user_roles` med `organization_id`, eller via `organization_users`?
-- Ska en användare kunna agera för flera företag redan i Version 1, eller endast förberedas via modellen?
-- Ska privatperson som kund kopplas direkt till `users`, eller via `customer_users` när kundkonto införs?
+- Sprint 8A har beslutat att en användare ska kunna agera för flera företag senare, men endast förberedas via modellen i Version 1.
+- Sprint 8A har beslutat att privatperson som kund kopplas via `customer_users` först när kundkonto/kundportal införs.
 - Vilka identitetsrelaterade händelser måste audit-loggas från första implementationen?
 
 ### Objekt

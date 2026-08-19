@@ -220,6 +220,20 @@ Visa historik
 Redigera kontaktuppgifter
 ```
 
+Mål:
+
+- Administratören kan förstå kundrelationen utan att ändra historiska bokningssnapshots.
+- Administratören kan se om kunden är privatkund eller företagskund.
+- Administratören kan se bokningshistorik inom sin organization.
+- Administratören kan ändra aktuell kontaktinformation och kundstatus.
+
+Viktiga gränser:
+
+- Interna kundanteckningar visas inte publikt.
+- Booking customer snapshot ändras inte när kundregistret uppdateras.
+- Dubbletter ska varnas för men inte slås ihop automatiskt i Version 1.
+- Kundportal och kundlogin byggs senare.
+
 ---
 
 # Journey 9 – Ladda upp dokument

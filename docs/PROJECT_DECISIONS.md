@@ -872,6 +872,62 @@ Kommande kod får inte skicka e-post direkt från controller eller inline i stat
 
 ---
 
+# Beslut 0020
+
+## Datum
+
+2026-08-19
+
+## Status
+
+Accepted
+
+## Titel
+
+Kunddomän för Version 1
+
+## Beslut
+
+Kunddomänen ska separera säkerhetsidentitet, affärsrelation och historisk bokningsdata.
+
+`users` är säkerhetsidentiteter för inloggning, roller, sessioner och framtida BankID.
+
+`customers` är affärsrelationer mellan en uthyrande `organization` och en kund. En kund kan vara privatperson eller företag och behöver inte ha användarkonto.
+
+`companies` används för strukturerad företagsdata när företagskunden behöver mer än ett fritextnamn.
+
+`booking_customer_snapshots` är immutable historisk representation av kontaktuppgifterna vid bokning.
+
+Version 1 ska fortsatt tillåta gästbokning. En gästbokning får skapa eller återanvända en minimal `Customer` inom samma `organization`, men ska aldrig automatiskt skapa `User`, kundportal, login eller BankID-koppling.
+
+Matchning får endast ske inom samma `organization`. Normaliserad e-post är primär matchningsnyckel. Telefon får bara användas som stöd eller varning. Företagsmatchning via organisationsnummer kan införas senare.
+
+Kundstatusarna för Version 1 är `active`, `inactive` och `blocked`. Blockerad kund ska inte kunna skapa ny bokningsförfrågan om systemet känner igen kunden, men befintlig historik ska bevaras.
+
+Interna kundanteckningar ska hållas separerade från bokningskommentarer, e-post och snapshots.
+
+`customer_users` används först när kundkonto eller kundportal byggs. En kundrelation kan då ha flera användare och en användare kan vara kopplad till flera kundrelationer.
+
+## Motivering
+
+Modellen bevarar det enkla MVP-flödet med gästbokning samtidigt som kundhistorik, framtida kundportal, företag och marknadsplats förbereds.
+
+Att hålla `customers` organization-scoped minskar risken för dataläckage mellan uthyrare.
+
+Snapshots skyddar bokningshistorik från senare ändringar i kundregister, företag eller användarkonton.
+
+En försiktig matchningsmodell minskar risken att fel personer slås ihop automatiskt.
+
+## Konsekvens
+
+Sprint 8B bör förfina kundrepository och adminflöde för kundlista, kunddetalj, kontaktredigering, status, bokningshistorik och dubblettvarningar.
+
+Sprint 8B bör även granska om `companies.organization_number` ska vara unikt per `organization_id` i stället för globalt, eftersom samma juridiska företag kan vara kund hos flera uthyrare.
+
+Kundportal, kundlogin, BankID, automatiserad merge, avancerad CRM, marketing, fakturering, avtal och Kivra skjuts upp.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

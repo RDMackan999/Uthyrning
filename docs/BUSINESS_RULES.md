@@ -510,6 +510,63 @@ En kund kan:
 
 Historik får inte tas bort.
 
+## Sprint 8A - kunddomän för Version 1
+
+Kund ska förstås som en affärsrelation, inte som ett inloggningskonto.
+
+Regler:
+
+- `User` är säkerhetsidentitet och används för inloggning, roller och framtida BankID.
+- `Customer` är kundrelationen hos en specifik uthyrare/organization.
+- `Company` används när företagskunden behöver strukturerad företagsdata.
+- Booking customer snapshot är historisk bokningsdata och får inte ändras när kundregistret ändras.
+- Samma person eller företag kan vara kund hos flera uthyrande organization utan att kunddata delas mellan dessa.
+
+Version 1 ska stödja både privatkund och företagskund.
+
+Privatkund:
+
+- representeras av `Customer` utan företagskoppling.
+- behöver namn, e-post och telefon i bokningsflödet.
+
+Företagskund:
+
+- representeras av `Customer` med kundtyp företag.
+- kan kopplas till `Company` när organisationsnummer eller strukturerad företagsdata finns.
+- får ha företagsnamn i bokningssnapshot även när ingen `Company`-rad ännu finns.
+
+Gästbokning:
+
+- ska fortsatt tillåtas utan användarkonto.
+- får skapa eller återanvända minimal `Customer` inom samma organization.
+- ska alltid skapa booking customer snapshot.
+- får inte automatiskt skapa `User`, login, kundportal eller BankID-koppling.
+
+Matchning:
+
+- normaliserad e-post inom samma organization är primär matchning.
+- telefon får bara användas som stöd eller dubblettvarning.
+- företagsmatchning via organisationsnummer kan införas senare.
+- flera möjliga träffar ska hanteras manuellt av admin.
+- matchning får aldrig ske globalt mellan olika uthyrande organization i Version 1.
+
+Kundstatus:
+
+- `active`: kunden kan användas i normala flöden.
+- `inactive`: kunden ska inte föreslås automatiskt för nya bokningar.
+- `blocked`: kunden ska inte kunna skapa ny bokningsförfrågan om systemet känner igen kunden.
+
+Befintliga bokningar, avtal och snapshots ska bevaras även om kunden inaktiveras, blockeras, arkiveras eller anonymiseras senare.
+
+Interna kundanteckningar:
+
+- får aldrig visas publikt.
+- får aldrig skickas i e-post.
+- får aldrig kopieras till booking snapshot.
+- ska behörighetskontrolleras och audit-loggas när funktionen byggs.
+
+Kundregister ska följa dataminimering. Personnummer, kreditinformation, marknadsföringsdata och annan känslig information får inte läggas till utan separat dokumenterat behov.
+
 ---
 
 # Dokument
