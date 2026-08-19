@@ -17,4 +17,9 @@ return [
         'csrf_cookie_name' => 'uthyrning_csrf',
         'csrf_token_lifetime' => 1800,
     ],
+    'notifications' => [
+        'email_transport' => 'development',
+        'max_attempts' => 3,
+        'development_simulate_failure' => false,
+    ],
 ];
