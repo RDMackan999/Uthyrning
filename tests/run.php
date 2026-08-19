@@ -28,6 +28,7 @@ use App\Models\RentalItem;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
+use App\Repositories\CustomerRepository;
 use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\NotificationAttemptRepository;
@@ -310,6 +311,21 @@ function createCustomer(int $organizationId, string $name, string $email): int
         'name' => $name,
         'email' => $email,
         'email_normalized' => strtolower(trim($email)),
+        'status_key' => 'active',
+    ]);
+
+    return (int) pdo()->lastInsertId();
+}
+
+function createCompany(int $organizationId, string $name): int
+{
+    $statement = pdo()->prepare(
+        'INSERT INTO companies (organization_id, name, status_key, created_at, updated_at)
+         VALUES (:organization_id, :name, :status_key, UTC_TIMESTAMP(), UTC_TIMESTAMP())'
+    );
+    $statement->execute([
+        'organization_id' => $organizationId,
+        'name' => $name,
         'status_key' => 'active',
     ]);
 
@@ -5132,6 +5148,239 @@ $runner->test('admin notification operations enforce access, privacy, retry, aud
             . rawurlencode((string) ($publicItemData['slug'] ?? ''))
             . '/book';
         assertSame(200, $router->dispatch(new Request('GET', $publicFormPath))->statusCode(), 'Public booking flow should continue to work.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('customer foundation connects guest bookings and admin manages customers', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService,
+    $basePath
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $customerRepository = new CustomerRepository();
+    $bookingService = new BookingService(
+        $bookingRepository,
+        $bookingItemRepository,
+        $rentalItemRepository,
+        $bookingAvailabilityService,
+        $bookingPricingService
+    );
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Customer Admin ' . $suffix, 'customer-admin-' . $suffix);
+        $otherOrganizationId = createOrganization('Customer Admin Other ' . $suffix, 'customer-admin-other-' . $suffix);
+        $companyId = createCompany($organizationId, 'Kundbolaget ' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for customer tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'customer-admin-item-' . $suffix,
+            'Customer Admin Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $otherItem = createBookableRentalItem(
+            $otherOrganizationId,
+            $categoryId,
+            'customer-admin-other-item-' . $suffix,
+            'Customer Admin Other Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemData = $item->toArray();
+        $publicBlockedDate = (new DateTimeImmutable('today'))->modify('+45 days')->format('Y-m-d');
+        $publicBookPath = '/items/'
+            . rawurlencode((string) ($itemData['public_id'] ?? ''))
+            . '/'
+            . rawurlencode((string) ($itemData['slug'] ?? ''))
+            . '/book';
+
+        $firstBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemData['id'] ?? 0),
+            'start_date' => '2034-03-01',
+            'end_date' => '2034-03-01',
+            'customer_name' => 'Guest Customer ' . $suffix,
+            'customer_email' => 'Guest.Customer.' . $suffix . '@Example.COM',
+            'customer_phone' => '070-101 20 30',
+        ]);
+        $customerId = (int) ($firstBooking->toArray()['customer_id'] ?? 0);
+        assertTrue($customerId > 0, 'Guest booking should create and link a customer.');
+        $customer = $customerRepository->findById($customerId);
+        $customerData = $customer->toArray();
+        assertSame($organizationId, (int) ($customerData['organization_id'] ?? 0), 'Customer should be organization scoped.');
+        assertSame('private', $customerData['customer_type_key'] ?? null, 'Guest without company should create a private customer.');
+        assertSame('guest.customer.' . $suffix . '@example.com', $customerData['email_normalized'] ?? null, 'Customer email should be normalized.');
+
+        $snapshotStatement = $pdo->prepare(
+            'SELECT customer_id, customer_name, customer_email_normalized
+             FROM booking_customer_snapshots
+             WHERE booking_id = :booking_id
+             LIMIT 1'
+        );
+        $snapshotStatement->execute(['booking_id' => (int) ($firstBooking->toArray()['id'] ?? 0)]);
+        $snapshotBefore = $snapshotStatement->fetch(PDO::FETCH_ASSOC);
+        assertSame($customerId, (int) ($snapshotBefore['customer_id'] ?? 0), 'Snapshot should store linked customer id.');
+        assertSame('Guest Customer ' . $suffix, $snapshotBefore['customer_name'] ?? null, 'Snapshot should keep original guest name.');
+
+        $secondBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemData['id'] ?? 0),
+            'start_date' => '2034-03-02',
+            'end_date' => '2034-03-02',
+            'customer_name' => 'Guest Customer Changed ' . $suffix,
+            'customer_email' => 'guest.customer.' . $suffix . '@example.com',
+            'customer_phone' => '070-101 20 31',
+        ]);
+        assertSame($customerId, (int) ($secondBooking->toArray()['customer_id'] ?? 0), 'Exact email match in same organization should reuse customer.');
+
+        $otherBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($otherItem->toArray()['id'] ?? 0),
+            'start_date' => '2034-03-01',
+            'end_date' => '2034-03-01',
+            'customer_name' => 'Other Organization Guest ' . $suffix,
+            'customer_email' => 'guest.customer.' . $suffix . '@example.com',
+            'customer_phone' => '070-101 20 32',
+        ]);
+        assertFalse(
+            $customerId === (int) ($otherBooking->toArray()['customer_id'] ?? 0),
+            'Customer matching must not cross organization boundaries.'
+        );
+
+        $blockedCustomerId = createCustomer($organizationId, 'Blocked Customer ' . $suffix, 'blocked-customer-' . $suffix . '@example.com');
+        $pdo->prepare(
+            'UPDATE customers
+             SET status_key = :status_key,
+                updated_at = UTC_TIMESTAMP()
+             WHERE id = :id'
+        )->execute([
+            'id' => $blockedCustomerId,
+            'status_key' => 'blocked',
+        ]);
+        $bookingCountBeforeBlocked = countRows('bookings');
+        assertThrows(
+            static function () use ($bookingService, $itemData, $suffix): void {
+                $bookingService->createRequest([
+                    'rental_item_id' => (int) ($itemData['id'] ?? 0),
+                    'start_date' => '2034-03-03',
+                    'end_date' => '2034-03-03',
+                    'customer_name' => 'Blocked Customer ' . $suffix,
+                    'customer_email' => 'blocked-customer-' . $suffix . '@example.com',
+                    'customer_phone' => '070-101 20 33',
+                ]);
+            },
+            BookingException::class,
+            'Blocked recognized customer should not create a booking.'
+        );
+        assertSame($bookingCountBeforeBlocked, countRows('bookings'), 'Blocked customer attempt should not create booking rows.');
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+        $blockedPublicResponse = $router->dispatch(requestWithValidCsrf('POST', $publicBookPath, [
+            'start_date' => $publicBlockedDate,
+            'end_date' => $publicBlockedDate,
+            'customer_name' => 'Blocked Customer ' . $suffix,
+            'customer_email' => 'blocked-customer-' . $suffix . '@example.com',
+            'customer_phone' => '070-101 20 33',
+        ]));
+        assertSame(200, $blockedPublicResponse->statusCode(), 'Blocked public booking should render a safe form error.');
+        assertTrue(
+            str_contains($blockedPublicResponse->content(), 'kunde inte skickas just nu'),
+            'Blocked public booking should show a generic message.'
+        );
+        assertFalse(str_contains($blockedPublicResponse->content(), 'Spärrad'), 'Blocked public booking should not expose customer status.');
+
+        $adminSession = createAuthenticatedTestUser(true);
+        $userSession = createAuthenticatedTestUser(false);
+        $adminToken = $adminSession['token'];
+        $adminUserId = $adminSession['user_id'];
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+        $adminCookies = ['uthyrning_session' => $adminToken];
+
+        assertSame(302, $router->dispatch(new Request('GET', '/admin/customers'))->statusCode(), 'Unauthenticated users should be redirected from customer admin.');
+        assertSame(403, $router->dispatch(new Request(
+            'GET',
+            '/admin/customers',
+            [],
+            [],
+            ['uthyrning_session' => $userSession['token']],
+            $server
+        ))->statusCode(), 'Non-admin users should be denied customer admin.');
+
+        $listResponse = $router->dispatch(new Request('GET', '/admin/customers', [], [], $adminCookies, $server));
+        assertSame(200, $listResponse->statusCode(), 'Admin should list customers.');
+        assertTrue(str_contains($listResponse->content(), 'Guest Customer ' . $suffix), 'Customer list should show created customer.');
+        assertTrue(str_contains($listResponse->content(), 'Kundbolaget ' . $suffix) === false, 'Unlinked company should not appear on private customer row.');
+
+        $detailResponse = $router->dispatch(new Request('GET', '/admin/customers/' . $customerId, [], [], $adminCookies, $server));
+        assertSame(200, $detailResponse->statusCode(), 'Admin should view customer detail.');
+        assertTrue(str_contains($detailResponse->content(), 'Bokningshistorik'), 'Customer detail should include booking history.');
+        assertTrue(str_contains($detailResponse->content(), (string) ($firstBooking->toArray()['public_id'] ?? '')), 'Customer detail should list linked booking.');
+
+        $editResponse = $router->dispatch(new Request('GET', '/admin/customers/' . $customerId . '/edit', [], [], $adminCookies, $server));
+        assertSame(200, $editResponse->statusCode(), 'Admin should open customer edit form.');
+        assertTrue(str_contains($editResponse->content(), 'csrf_token'), 'Customer edit form should include CSRF token.');
+
+        $updateResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/customers/' . $customerId,
+            $adminToken,
+            [
+                'name' => 'Updated Customer ' . $suffix,
+                'email' => 'Updated.Customer.' . $suffix . '@Example.COM',
+                'phone' => '070-999 88 77',
+                'customer_type_key' => 'company',
+                'company_id' => (string) $companyId,
+            ]
+        ));
+        assertSame(302, $updateResponse->statusCode(), 'Customer update should redirect after success.');
+        $updatedCustomer = $customerRepository->findById($customerId);
+        $updatedCustomerData = $updatedCustomer->toArray();
+        assertSame('Updated Customer ' . $suffix, $updatedCustomerData['name'] ?? null, 'Customer name should update.');
+        assertSame('updated.customer.' . $suffix . '@example.com', $updatedCustomerData['email_normalized'] ?? null, 'Updated customer email should be normalized.');
+        assertSame('company', $updatedCustomerData['customer_type_key'] ?? null, 'Customer type should update to company.');
+        assertSame($companyId, (int) ($updatedCustomerData['company_id'] ?? 0), 'Customer should link to same-organization company.');
+
+        $snapshotStatement->execute(['booking_id' => (int) ($firstBooking->toArray()['id'] ?? 0)]);
+        assertSame($snapshotBefore, $snapshotStatement->fetch(PDO::FETCH_ASSOC), 'Customer updates should not mutate booking snapshot.');
+
+        $statusResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/customers/' . $customerId . '/status',
+            $adminToken,
+            ['status_key' => 'blocked']
+        ));
+        assertSame(302, $statusResponse->statusCode(), 'Customer status update should redirect after success.');
+        assertSame('blocked', $customerRepository->findById($customerId)->toArray()['status_key'] ?? null, 'Customer status should update.');
+        assertTrue(auditCount('customer_updated', 'customer') >= 1, 'Customer update should be audited.');
+        assertTrue(auditCount('customer_status_changed', 'customer') >= 1, 'Customer status update should be audited.');
+        assertSame($adminUserId, $adminSession['user_id'], 'Admin actor fixture should remain valid.');
+
+        $history = $customerRepository->findBookingHistory($customerId, $organizationId);
+        assertTrue(count($history) >= 2, 'Customer booking history should include linked bookings.');
+        assertSame([], $customerRepository->findBookingHistory($customerId, $otherOrganizationId), 'Booking history should be organization scoped.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

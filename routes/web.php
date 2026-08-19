@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\AdminDashboardController;
 use App\Controllers\AdminAvailabilityBlockController;
 use App\Controllers\AdminBookingController;
+use App\Controllers\AdminCustomerController;
 use App\Controllers\AdminNotificationController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
@@ -23,6 +24,7 @@ return static function (Router $router): void {
     $authController = new AuthController();
     $adminAvailabilityBlockController = AdminAvailabilityBlockController::fromConfig();
     $adminBookingController = AdminBookingController::fromConfig();
+    $adminCustomerController = AdminCustomerController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
     $adminNotificationController = AdminNotificationController::fromConfig();
     $publicBookingController = new PublicBookingController();
@@ -114,6 +116,31 @@ return static function (Router $router): void {
     $router->post(
         '/admin/notifications/{public_id}/retry',
         static fn (Request $request): Response => $adminNotificationController->retry($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/customers',
+        static fn (Request $request): Response => $adminCustomerController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/customers/{id}',
+        static fn (Request $request): Response => $adminCustomerController->show($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/customers/{id}/edit',
+        static fn (Request $request): Response => $adminCustomerController->edit($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/customers/{id}',
+        static fn (Request $request): Response => $adminCustomerController->update($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/customers/{id}/status',
+        static fn (Request $request): Response => $adminCustomerController->updateStatus($request),
         $systemAdminMiddleware
     );
     $router->get(
