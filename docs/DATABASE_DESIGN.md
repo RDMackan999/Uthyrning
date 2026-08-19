@@ -979,24 +979,74 @@ Risker:
 
 ### Kalender
 
-Tabeller:
+Rekommenderad källa till sanning för Version 1:
+
+Tillgänglighet ska beräknas direkt från `bookings` och `booking_items` via `BookingAvailabilityService` eller motsvarande domänservice. Kalendern ska inte införa en parallell sanningstabell i Version 1.
+
+Alternativ som har bedömts:
+
+1. Beräkna direkt från bokningar och bokningsrader.
+   Fördel: enkel, tydlig och minst risk för synkfel. Nackdel: kan behöva optimeras senare vid hög trafik. Rekommenderas för Version 1.
+
+2. Separat tillgänglighetsservice ovanpå samma tabeller.
+   Fördel: samlar regler och kan återanvändas av publik sida, admin och framtida API. Nackdel: kräver disciplin så ingen annan kod går runt servicen. Rekommenderas som kodstruktur, men fortfarande med `bookings` och `booking_items` som datakälla.
+
+3. Materialiserad kalender- eller cachetabell.
+   Fördel: snabb vid hög trafik och tunga filter. Nackdel: synkroniseringsrisk, mer komplexitet och större testbehov. Skjuts upp tills verklig last motiverar det.
+
+Blockerande statusar i Version 1:
+
+- `request`
+- `approved`
+- `active`
+
+Icke blockerande statusar:
+
+- `rejected`
+- `cancelled`
+- `completed`
+
+Publik kalender ska bara exponera om en dag eller period är bokningsbar. Den får aldrig exponera kunduppgifter, företagsnamn, intern status, bokningens `public_id`, kommentarer, adminanteckningar eller annan intern data.
+
+Datumregler:
+
+- Bokningar använder `DATE`.
+- `start_date` och `end_date` är inklusiva.
+- Samma dag kan inte vara både sista blockerade dag i en bokning och första dag i nästa bokning för samma objekt.
+- Nästa bokningsbara dag efter en blockerande bokning är dagen efter `end_date`, om inget annat blockerar.
+- Samma-dag-bokning får stödjas om dagen inte är blockerad och övriga bokningsregler är uppfyllda.
+- Alla tidsstämplar lagras i UTC, men kalenderdagar tolkas som svenska verksamhetsdagar och får inte skifta datum på grund av tidszon.
+
+Publik kalenderfråga ska begränsas till ett rimligt intervall. Version 1 bör tillåta högst 6 månader framåt per fråga och inte stödja obegränsade intervall.
+
+Administrativ kalender kan senare visa orsaken till blockering, till exempel `request`, `approved`, `active`, manuell blockering eller service. Publik kalender ska även då fortsätta visa endast tillgänglig/ej tillgänglig.
+
+Framtida tabeller:
 
 - `availability_rules`
 - `availability_exceptions`
 - `calendar_events`
 - `blocked_periods`
 
-Syfte:
+Syfte med framtida kalenderutbyggnad:
 
 - Visa när objekt är lediga, bokade, blockerade eller på service.
 - Förhindra överlappande bokningar.
 - Stödja manuell blockering av objekt.
 
-Relationer:
+Relationer i framtida utbyggnad:
 
 - Kalenderposter kopplas till objekt.
 - Bokningar skapar kalenderhändelser.
 - Service och besiktning kan skapa blockerade perioder.
+
+Manuella blockeringar:
+
+Version 1 behöver troligen manuell blockering för egen användning, transport, buffert och planerad service, men detta ska inte byggas i Sprint 6A. Om funktionen prioriteras rekommenderas en separat Sprint 6B som designar och implementerar `blocked_periods` eller motsvarande tabell.
+
+Service och underhåll:
+
+Service ska senare kunna blockera ett objekt under en period. Serviceorsak ska vara synlig för administratör, men publik kalender ska bara visa att datumet inte är tillgängligt.
 
 Framtida utbyggnad:
 
@@ -1005,7 +1055,15 @@ Framtida utbyggnad:
 - Resursplanering för leverans.
 - Offline-PWA-cache av tillgänglighet.
 
-Risk: överlappande datumintervall är ett klassiskt felområde. Definiera tidzon, heldag/del av dag och hämtning/återlämning innan migrationer skrivs.
+Prestanda:
+
+Index på `booking_items(rental_item_id, start_date, end_date)` och `bookings(organization_id, status_key, start_date, end_date)` ska räcka för Version 1. Cache, materialiserad kalender och PWA-offline-data ska vänta tills faktisk användning visar behovet.
+
+Concurrency:
+
+Kalendern är informativ. När en kund skickar bokningsförfrågan måste servern kontrollera tillgänglighet igen med samma överlappsregel. En period som nyss visats som ledig kan ha hunnit blockeras av en annan förfrågan.
+
+Risk: överlappande datumintervall är ett klassiskt felområde. Definiera tidzon, heldag/del av dag och hämtning/återlämning innan migrationer skrivs. Undvik parallella kalenderkällor tills behovet är bevisat.
 
 ### Service
 

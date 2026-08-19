@@ -207,6 +207,24 @@ Knapp:
 
 # Bokningsförfrågan
 
+Version 1 bör hålla kalender och kontaktformulär på samma objektsida eller samma bokningssida. Det minskar antal steg och passar MVP-flödet där kunden skickar en bokningsförfrågan utan konto.
+
+Rekommenderat flöde:
+
+```
+Objektdetalj
+    ↓
+Välj startdatum i kalender
+    ↓
+Välj slutdatum i kalender
+    ↓
+Fyll i kontaktuppgifter
+    ↓
+Granska förfrågan
+    ↓
+Skicka
+```
+
 Användaren anger:
 
 - startdatum
@@ -222,6 +240,24 @@ Version 1 ska tillåta bokningsförfrågan utan användarkonto.
 Formuläret ska vara kopplat till ett publikt, bokningsbart objekt.
 
 Formuläret ska inte visa interna objekt-id:n, interna noteringar eller adminfält.
+
+Kalendern ska visa:
+
+- lediga datum
+- ej tillgängliga datum
+- valt startdatum
+- valt slutdatum
+- vald period
+
+Publik kalender ska inte visa om ett datum är blockerat av förfrågan, godkänd bokning, aktiv bokning, service eller manuell blockering. Kunden ska endast se om datumet kan väljas.
+
+Kalendern ska vara tillgänglig:
+
+- datum ska kunna nås med tangentbord
+- inaktiva datum ska ha tydligt disabled-läge
+- färg får inte vara enda betydelsebärare
+- datumknappar ska ha tydliga labels
+- felmeddelanden ska vara kopplade till fältet de gäller
 
 Innan förfrågan skickas ska användaren kunna granska:
 
@@ -439,6 +475,8 @@ Kalenderpåverkan:
 - Godkänd bokning reserverar datum.
 - Aktiv bokning reserverar datum.
 - Nekad, avbokad och slutförd bokning frigör datum för framtida bokningar.
+
+Administrativ kalender ska senare kunna visa skillnad mellan förfrågan, godkänd bokning, aktiv bokning, manuell blockering och service. Den ska aldrig bygga egna tillgänglighetsregler som avviker från backendens gemensamma tillgänglighetskontroll.
 
 ---
 

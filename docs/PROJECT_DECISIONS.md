@@ -721,6 +721,56 @@ Framtida sprintar behöver specificera eventuell automatisk utgångstid för obe
 
 ---
 
+# Beslut 0017
+
+## Datum
+
+2026-08-19
+
+## Status
+
+Accepted
+
+## Titel
+
+Tillgänglighetskalender för Version 1
+
+## Beslut
+
+Version 1 ska använda `bookings` och `booking_items` som källa till sanning för tillgänglighet. Tillgänglighet ska beräknas av `BookingAvailabilityService` eller motsvarande gemensam domänservice.
+
+Kalendern ska följa Sprint 5-reglerna för `DATE`, inkluderande `start_date` och `end_date`, och samma överlappsregel som bokningsflödet.
+
+Statusarna `request`, `approved` och `active` blockerar kalendern. Statusarna `rejected`, `cancelled` och `completed` blockerar inte kalendern.
+
+Publik kalender ska endast visa om datum är tillgängliga eller ej tillgängliga, samt användarens preliminärt valda startdatum, slutdatum och period. Publik kalender får inte visa kunddata, boknings-id, intern status, företag, kommentarer, prisdata som inte redan är publik eller admininformation.
+
+Publik tillgänglighet ska begränsas till högst 6 månader framåt per fråga i Version 1.
+
+Kalendern är informativ tills bokningsförfrågan skickas. Servern ska alltid kontrollera tillgänglighet igen vid submit.
+
+Version 1 bör börja med server-renderad bokningssida och kan senare kompletteras med ett minimalt publikt JSON-endpoint för kalenderdata. Ett sådant endpoint får endast ta publikt objekt-id eller slug samt ett begränsat datumintervall och returnera anonymiserad tillgänglighet.
+
+Manuella blockeringar, serviceblockeringar och buffertdagar ska designas och implementeras i separat sprint innan de används som kalenderkälla.
+
+## Motivering
+
+Direkt beräkning från bokningar och bokningsrader är enklast, säkrast och minskar risken för att kalendern och bokningslogiken hamnar ur synk.
+
+En materialiserad kalender eller cache kan bli värdefull senare, men introducerar synkroniseringsrisk och bör vänta tills faktisk trafik eller PWA/offline-krav motiverar det.
+
+Publik kalender behöver skydda både personuppgifter och affärsinformation. Kunden behöver bara veta om objektet kan bokas.
+
+## Konsekvens
+
+Kommande implementation ska återanvända gemensam tillgänglighetslogik och får inte skapa alternativa kalenderregler i controller, vy eller JavaScript.
+
+Admin kan senare visa mer detaljerad kalenderstatus än publik vy, men ska fortfarande använda samma tillgänglighetskälla.
+
+Sprint 6B bör besluta om manuell blockering ska implementeras direkt eller vänta tills service-/adminbehovet kräver det.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
