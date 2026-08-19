@@ -302,6 +302,8 @@ Krav:
 - Logga aldrig hela e-postbody, lösenord, tokens, reset-länkar eller interna säkerhetsdetaljer.
 - Logga endast säkra sammanfattningar av leveransfel, till exempel felkod och kort feltyp.
 - Development och test ska inte skicka riktiga e-postmeddelanden av misstag.
+- Production får inte använda development-transport som tyst fallback.
+- SMTP i produktion ska använda TLS/STARTTLS eller SMTPS och explicit konfiguration.
 - SMTP-uppgifter och provider-nycklar får aldrig committas.
 - Extern e-postprovider ska granskas ur GDPR- och personuppgiftsperspektiv innan produktion.
 

@@ -145,7 +145,7 @@ Routern fångar endast `HttpException` och konverterar dessa till enkla HTTP-res
 
 ### Notifieringslager
 
-Sprint 7B introducerar notifieringar som ett separat applikationslager mellan bokningshändelser och transport.
+Sprint 7B introducerar notifieringar som ett separat applikationslager mellan bokningshändelser och transport. Sprint 7D lägger till en generisk, provider-neutral SMTP-transport för produktion utan att införa extern leverantörsintegration.
 
 Nuvarande struktur:
 
@@ -156,12 +156,15 @@ Nuvarande struktur:
 - `NotificationDispatcher` renderar mall, anropar transport och uppdaterar status.
 - `EmailTransportInterface` beskriver transportkontraktet.
 - `DevelopmentEmailTransport` fångar meddelanden utan att skicka riktig e-post.
+- `EmailMessageValidator` validerar mottagare, ämne och headerfält innan transport.
+- `EmailTransportFactory` väljer transport utifrån konfiguration och stoppar development-transport i produktion.
+- `SmtpEmailTransport` skickar via generisk SMTP med PHPMailer när produktion uttryckligen konfigureras för `smtp`.
 
 Controllers och bokningsstatuslogik ska inte skicka e-post direkt. De ska anropa domän- eller applikationsservice som först sparar bokningshändelsen och därefter skapar notifiering.
 
-Development och test ska använda en säker testtransport eller mail-capture. Riktiga SMTP-uppgifter får inte finnas i repo.
+Development och test ska använda en säker testtransport eller mail-capture. Riktiga SMTP-uppgifter får inte finnas i repo och ska endast ligga i lokal eller driftsspecifik konfiguration.
 
-Extern SMTP, SMS, push, Kivra, worker/kö och mallredigerare ingår inte i Sprint 7B.
+Leverantörsspecifika mailintegrationer, SMS, push, Kivra, worker/kö, scheduler och mallredigerare ingår inte i Sprint 7D.
 
 ### Tekniska routes
 

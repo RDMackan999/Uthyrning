@@ -42,12 +42,15 @@ use App\Services\BookingPricingService;
 use App\Services\BookingService;
 use App\Services\BookingStatusService;
 use App\Services\Email\DevelopmentEmailTransport;
+use App\Services\Email\EmailTransportFactory;
 use App\Services\Email\EmailMessage;
+use App\Services\Email\SmtpEmailTransport;
 use App\Services\NotificationDispatcher;
 use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
 use App\Services\RentalItemPublicationService;
 use App\Services\SessionService;
+use PHPMailer\PHPMailer\PHPMailer;
 
 $basePath = dirname(__DIR__);
 $autoloadPath = $basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
@@ -106,6 +109,25 @@ final class TestRunner
         echo 'Failed: ' . $this->failed . PHP_EOL;
 
         return $this->failed === 0 ? 0 : 1;
+    }
+}
+
+final class TestSmtpMailer extends PHPMailer
+{
+    public function __construct(private readonly bool $shouldSend = true, private readonly string $safeError = '')
+    {
+        parent::__construct(true);
+    }
+
+    public function send(): bool
+    {
+        if (!$this->shouldSend) {
+            $this->ErrorInfo = $this->safeError;
+
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -997,6 +1019,327 @@ $runner->test('notification failure retries do not roll back booking or status c
             NotificationException::class,
             'Invalid recipients should be rejected safely.'
         );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('smtp email transport is explicit, safe and provider neutral', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $developmentFactory = new EmailTransportFactory([
+            'email_transport' => 'development',
+            'development_simulate_failure' => false,
+            'smtp' => [
+                'host' => 'smtp.example.com',
+                'port' => 587,
+                'encryption' => 'tls',
+                'username' => 'smtp-user',
+                'password' => 'smtp-secret-' . $suffix,
+                'from_address' => 'no-reply@example.com',
+                'from_name' => 'Uthyrning',
+            ],
+        ], 'development');
+        assertTrue($developmentFactory->make() instanceof DevelopmentEmailTransport, 'Development should use safe capture transport by default.');
+
+        assertThrows(
+            static fn (): mixed => (new EmailTransportFactory(['email_transport' => 'development'], 'production'))->make(),
+            NotificationException::class,
+            'Production should not silently fall back to development transport.'
+        );
+
+        foreach ([
+            'missing host' => [
+                'host' => '',
+                'port' => 587,
+                'encryption' => 'tls',
+                'from_address' => 'no-reply@example.com',
+                'from_name' => 'Uthyrning',
+            ],
+            'invalid port' => [
+                'host' => 'smtp.example.com',
+                'port' => 0,
+                'encryption' => 'tls',
+                'from_address' => 'no-reply@example.com',
+                'from_name' => 'Uthyrning',
+            ],
+            'invalid encryption' => [
+                'host' => 'smtp.example.com',
+                'port' => 587,
+                'encryption' => 'none',
+                'from_address' => 'no-reply@example.com',
+                'from_name' => 'Uthyrning',
+            ],
+            'invalid from address' => [
+                'host' => 'smtp.example.com',
+                'port' => 587,
+                'encryption' => 'tls',
+                'from_address' => 'not-an-address',
+                'from_name' => 'Uthyrning',
+            ],
+            'invalid from name' => [
+                'host' => 'smtp.example.com',
+                'port' => 587,
+                'encryption' => 'tls',
+                'from_address' => 'no-reply@example.com',
+                'from_name' => "Uthyrning\r\nBcc: unsafe@example.com",
+            ],
+        ] as $case => $smtpConfig) {
+            assertThrows(
+                static fn (): mixed => SmtpEmailTransport::fromConfig($smtpConfig),
+                NotificationException::class,
+                'SMTP config should reject ' . $case . '.'
+            );
+        }
+
+        $secret = 'smtp-secret-' . $suffix;
+        try {
+            SmtpEmailTransport::fromConfig([
+                'host' => 'smtp.example.com',
+                'port' => 587,
+                'encryption' => 'tls',
+                'username' => 'smtp-user',
+                'password' => $secret,
+                'from_address' => "bad@example.com\r\nBcc: unsafe@example.com",
+                'from_name' => 'Uthyrning',
+            ]);
+            throw new RuntimeException('Invalid SMTP config should throw.');
+        } catch (NotificationException $exception) {
+            assertFalse(str_contains($exception->getMessage(), $secret), 'SMTP credentials should not appear in exceptions.');
+            assertSame('configuration_error', $exception->safeErrorCode(), 'Invalid SMTP config should expose safe error code.');
+        }
+
+        $successTransport = new SmtpEmailTransport(
+            'smtp.example.com',
+            587,
+            'tls',
+            'smtp-user',
+            $secret,
+            'no-reply@example.com',
+            'Uthyrning',
+            mailerFactory: static fn (): PHPMailer => new TestSmtpMailer(true)
+        );
+        $successResult = $successTransport->send(new EmailMessage(
+            'recipient@example.com',
+            'Safe subject',
+            '<p>Hello</p>',
+            'Hello'
+        ));
+        assertTrue($successResult->isSuccessful(), 'Simulated SMTP success should return successful result.');
+
+        foreach ([
+            'bad-recipient' => new EmailMessage('bad@example.com' . "\r\nBcc: unsafe@example.com", 'Safe subject', '<p>Hello</p>', 'Hello'),
+            'bad-subject' => new EmailMessage('recipient@example.com', "Safe\r\nBcc: unsafe@example.com", '<p>Hello</p>', 'Hello'),
+        ] as $case => $message) {
+            assertThrows(
+                static fn (): mixed => $successTransport->send($message),
+                NotificationException::class,
+                'SMTP transport should reject ' . $case . '.'
+            );
+        }
+
+        $organizationId = createOrganization('SMTP Notification Org ' . $suffix, 'smtp-notification-org-' . $suffix);
+        setOrganizationEmail($organizationId, 'smtp-admin-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for SMTP notification tests.');
+        $item = createBookableRentalItem(
+            $organizationId,
+            (int) $globalCategory->toArray()['id'],
+            'smtp-notification-item-' . $suffix,
+            'SMTP Notification Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+
+        $notificationRepository = new NotificationRepository();
+        $notificationAttemptRepository = new NotificationAttemptRepository();
+        $templateService = new NotificationTemplateService();
+        $smtpFactoryKey = new EmailTransportFactory(['email_transport' => 'smtp'], 'production');
+        $smtpSuccessNotificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $successTransport,
+                $smtpFactoryKey
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $smtpSuccessBookingService = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $smtpSuccessNotificationService
+        );
+        $smtpBooking = $smtpSuccessBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2033-01-10',
+            'end_date' => '2033-01-10',
+            'customer_name' => 'SMTP Success Guest',
+            'customer_email' => 'smtp-success-' . $suffix . '@example.com',
+            'customer_phone' => '070-800 00 10',
+        ]);
+        $smtpNotification = notificationForBooking((int) $smtpBooking->toArray()['id'], 'booking_created', 'customer');
+        $smtpNotificationData = $smtpNotification->toArray();
+        assertSame('sent', $smtpNotificationData['status_key'] ?? null, 'Simulated SMTP success should mark notification sent.');
+        assertSame(1, (int) ($smtpNotificationData['attempts_count'] ?? 0), 'SMTP success should create one attempt.');
+        $smtpAttempt = $notificationAttemptRepository
+            ->findForNotification((int) ($smtpNotificationData['id'] ?? 0))
+            ->toArray()[0] ?? [];
+        assertSame('smtp', $smtpAttempt['transport_key'] ?? null, 'SMTP attempt should record smtp transport key.');
+
+        $failureTransport = new SmtpEmailTransport(
+            'smtp.example.com',
+            587,
+            'tls',
+            'smtp-user',
+            $secret,
+            'no-reply@example.com',
+            'Uthyrning',
+            mailerFactory: static fn (): PHPMailer => new TestSmtpMailer(false, 'SMTP connect failed')
+        );
+        $smtpFailureNotificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                $failureTransport,
+                $smtpFactoryKey
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $smtpFailureBookingService = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $smtpFailureNotificationService
+        );
+        $failureBooking = $smtpFailureBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2033-01-11',
+            'end_date' => '2033-01-11',
+            'customer_name' => 'SMTP Failure Guest',
+            'customer_email' => 'smtp-failure-' . $suffix . '@example.com',
+            'customer_phone' => '070-800 00 11',
+        ]);
+        $failureBookingId = (int) $failureBooking->toArray()['id'];
+        $failureNotification = notificationForBooking($failureBookingId, 'booking_created', 'customer');
+        $failureNotificationData = $failureNotification->toArray();
+        assertSame('request', $bookingRepository->findById($failureBookingId)->toArray()['status_key'] ?? null, 'SMTP failure should not roll back booking.');
+        assertSame('pending', $failureNotificationData['status_key'] ?? null, 'SMTP failure should remain retryable while attempts remain.');
+        assertSame('connection_failed', $failureNotificationData['last_error_code'] ?? null, 'SMTP failure should store safe error category.');
+        assertFalse(str_contains((string) ($failureNotificationData['last_error_summary'] ?? ''), $secret), 'Notification last error should not expose credentials.');
+        assertFalse(str_contains((string) ($failureNotificationData['last_error_summary'] ?? ''), 'SMTP connect failed'), 'Notification last error should not store raw SMTP error.');
+
+        $failureAttempt = $notificationAttemptRepository
+            ->findForNotification((int) ($failureNotificationData['id'] ?? 0))
+            ->toArray()[0] ?? [];
+        assertSame('connection_failed', $failureAttempt['error_code'] ?? null, 'Attempt should store safe SMTP error category.');
+        assertFalse(str_contains((string) ($failureAttempt['error_summary'] ?? ''), $secret), 'Attempt should not expose SMTP credentials.');
+        assertFalse(str_contains((string) ($failureAttempt['error_summary'] ?? ''), 'SMTP connect failed'), 'Attempt should not expose raw SMTP error.');
+
+        $smtpFailureNotificationService->notifyBookingCreated($failureBooking);
+        $smtpFailureNotificationService->notifyBookingCreated($failureBooking);
+        $maxedNotification = notificationForBooking($failureBookingId, 'booking_created', 'customer');
+        assertSame('failed', $maxedNotification->toArray()['status_key'] ?? null, 'SMTP max attempts should mark notification failed.');
+        assertSame(3, (int) ($maxedNotification->toArray()['attempts_count'] ?? 0), 'SMTP max attempts should remain three.');
+        assertSame(1, notificationCountForBooking($failureBookingId, 'booking_created', 'customer'), 'SMTP retry should reuse the same notification.');
+
+        $auditStatement = $pdo->prepare(
+            'SELECT context_json
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $auditStatement->execute([
+            'event_name' => 'notification_failed',
+            'subject_type' => 'notification',
+            'subject_id' => (int) ($failureNotificationData['id'] ?? 0),
+        ]);
+        $auditContext = (string) $auditStatement->fetchColumn();
+        assertTrue(str_contains($auditContext, 'connection_failed'), 'Audit should include safe SMTP error code.');
+        assertFalse(str_contains($auditContext, $secret), 'Audit should not expose SMTP credentials.');
+        assertFalse(str_contains($auditContext, 'SMTP connect failed'), 'Audit should not expose raw SMTP error.');
+
+        $invalidSmtpNotificationService = new NotificationService(
+            $notificationRepository,
+            new NotificationDispatcher(
+                $notificationRepository,
+                $notificationAttemptRepository,
+                $templateService,
+                new AuditService(),
+                null,
+                new EmailTransportFactory([
+                    'email_transport' => 'smtp',
+                    'smtp' => [
+                        'host' => '',
+                        'port' => 587,
+                        'encryption' => 'tls',
+                        'username' => 'smtp-user',
+                        'password' => $secret,
+                        'from_address' => 'no-reply@example.com',
+                        'from_name' => 'Uthyrning',
+                    ],
+                ], 'production')
+            ),
+            $templateService,
+            new AuditService()
+        );
+        $invalidSmtpBookingService = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService,
+            new AuditService(),
+            $invalidSmtpNotificationService
+        );
+        $invalidConfigBooking = $invalidSmtpBookingService->createRequest([
+            'rental_item_id' => (int) $item->toArray()['id'],
+            'start_date' => '2033-01-12',
+            'end_date' => '2033-01-12',
+            'customer_name' => 'SMTP Config Guest',
+            'customer_email' => 'smtp-config-' . $suffix . '@example.com',
+            'customer_phone' => '070-800 00 12',
+        ]);
+        $invalidConfigNotification = notificationForBooking((int) $invalidConfigBooking->toArray()['id'], 'booking_created', 'customer');
+        assertSame('configuration_error', $invalidConfigNotification->toArray()['last_error_code'] ?? null, 'Invalid SMTP config should record safe configuration error.');
+        assertFalse(str_contains((string) ($invalidConfigNotification->toArray()['last_error_summary'] ?? ''), $secret), 'Invalid SMTP config failure should not expose credentials.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

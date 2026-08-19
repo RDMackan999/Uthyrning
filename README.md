@@ -15,7 +15,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - HTTP-grund: Sprint 1G lägger till JsonResponse, ViewResponse, HttpException och NotFoundException utan affärslogik.
 - Lokal adminstart: Sprint 2H lägger till ett CLI-verktyg för att skapa första administratören i lokal databas.
 - Lokal PHP-körning: Sprint 2I lägger till `public/index.php` som PHP-entrypoint och `database/seed.php` för idempotent seedning.
-- Notifieringsgrund: Sprint 7B lägger till e-postbaserade bokningsnotifieringar via development/test-transport, utan extern mailprovider.
+- Notifieringsgrund: Sprint 7B lägger till e-postbaserade bokningsnotifieringar via development/test-transport. Sprint 7D lägger till en generisk SMTP-transport för produktion, utan leverantörsspecifik integration.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -126,7 +126,7 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `app/Core/MigrationRunner.php`: kör migrationsfiler i filnamnsordning och registrerar körda migrationer.
 - `app/Core/NotificationException.php`: säkert undantag för notifieringslagret.
 - `config/`: endast exempelkonfigurationer.
-- `config/config.example.php`: innehåller säkert development-läge för notifieringar.
+- `config/config.example.php`: innehåller säkert development-läge för notifieringar och exempelvärden för generisk SMTP-konfiguration.
 - `config/database.example.php`: exempelvärden för lokal MySQL/MariaDB-anslutning.
 - `routes/web.php`: tekniska routes för `/` och `/health`.
 - `database/migrations/`: SQL-migrationer. Sprint 1D innehåller endast intern `migrations`-tabell.
@@ -138,14 +138,19 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `routes/`, `storage/` och `tests/`: grundkataloger för kommande sprintar.
 - `app/Contracts/EmailTransportInterface.php`: transportoberoende gränssnitt för framtida e-postleverans.
 - `app/Services/Email/DevelopmentEmailTransport.php`: säker development/test-transport som aldrig skickar riktig e-post.
+- `app/Services/Email/EmailTransportFactory.php`: väljer aktiv e-posttransport utifrån konfiguration och kräver explicit transportval i produktion.
+- `app/Services/Email/EmailMessageValidator.php`: validerar mottagare, ämne och headerfält innan leveransförsök.
+- `app/Services/Email/SmtpEmailTransport.php`: generisk SMTP-transport via PHPMailer för framtida produktion.
 - `app/Services/NotificationService.php`: skapar bokningsnotifieringar idempotent.
 - `app/Services/NotificationDispatcher.php`: renderar mallar, anropar transport och registrerar leveransförsök.
 - `app/Services/NotificationTemplateService.php`: renderar filbaserade PHP-mailmallar.
 - `resources/views/emails/booking/`: enkla svenska mailmallar för Version 1.
 
-Riktiga config-filer, produkttabeller, affärsmigrationer, login, API, SQL mot verksamhetstabeller och integrationer ingår inte i Sprint 1G.
+Riktiga config-filer, nya affärsmigrationer, login, API och externa integrationer ska endast byggas i separata specificerade sprintar.
 
-Sprint 7B skickar ingen riktig e-post. `notifications.email_transport` är `development` i exempelkonfigurationen och extern SMTP/provider väljs i senare sprint.
+I development och test skickas ingen riktig e-post. `notifications.email_transport` är `development` i exempelkonfigurationen. För produktion ska en lokal, icke-committad `config/config.php` sätta `notifications.email_transport` till `smtp` och ange SMTP-host, port, kryptering, avsändare och eventuella autentiseringsuppgifter.
+
+Sprint 7D är provider-neutral. Den bygger inte BankID, Swish, Fortnox, SMS, push, Kivra, worker, scheduler eller automatisk retry.
 
 ## Planerad teknik senare
 

@@ -21,5 +21,15 @@ return [
         'email_transport' => 'development',
         'max_attempts' => 3,
         'development_simulate_failure' => false,
+        'smtp' => [
+            'host' => 'smtp.example.com',
+            'port' => 587,
+            'encryption' => 'tls',
+            'username' => '',
+            'password' => '',
+            'from_address' => 'no-reply@example.com',
+            'from_name' => 'Uthyrning',
+            'timeout_seconds' => 10,
+        ],
     ],
 ];
