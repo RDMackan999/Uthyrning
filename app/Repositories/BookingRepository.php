@@ -122,6 +122,121 @@ final class BookingRepository extends BaseRepository
     }
 
     /**
+     * Find non-deleted bookings with admin display fields.
+     *
+     * @return Collection<Booking>
+     */
+    public function findAllForAdmin(?string $statusKey = null): Collection
+    {
+        $params = [];
+        $where = 'WHERE bookings.deleted_at IS NULL';
+        $normalizedStatusKey = $this->nullableStatus($statusKey);
+
+        if ($normalizedStatusKey !== null) {
+            $where .= ' AND bookings.status_key = :status_key';
+            $params['status_key'] = $normalizedStatusKey;
+        }
+
+        $statement = Database::pdo()->prepare(
+            $this->adminSelectSql() . '
+             ' . $where . '
+             ORDER BY bookings.created_at DESC, bookings.id DESC'
+        );
+        $statement->execute($params);
+
+        return $this->bookingsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Find one non-deleted booking with admin display fields by public id.
+     */
+    public function findAdminByPublicId(string $publicId, ?int $organizationId = null): ?Booking
+    {
+        $sql = $this->adminSelectSql() . '
+             WHERE bookings.public_id = :public_id
+                AND bookings.deleted_at IS NULL';
+        $params = ['public_id' => trim($publicId)];
+
+        if ($organizationId !== null) {
+            $sql .= ' AND bookings.organization_id = :organization_id';
+            $params['organization_id'] = $organizationId;
+        }
+
+        $statement = Database::pdo()->prepare($sql . ' LIMIT 1');
+        $statement->execute($params);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : new Booking($row);
+    }
+
+    /**
+     * Return append-only status history for one booking in organization scope.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findStatusHistoryForBooking(int $organizationId, int $bookingId): array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT booking_status_history.from_status_key,
+                booking_status_history.to_status_key,
+                booking_status_history.changed_by_user_id,
+                booking_status_history.comment,
+                booking_status_history.created_at,
+                users.email AS changed_by_email
+             FROM booking_status_history
+             INNER JOIN bookings
+                ON bookings.id = booking_status_history.booking_id
+             LEFT JOIN users
+                ON users.id = booking_status_history.changed_by_user_id
+             WHERE booking_status_history.booking_id = :booking_id
+                AND bookings.organization_id = :organization_id
+                AND bookings.deleted_at IS NULL
+             ORDER BY booking_status_history.created_at ASC, booking_status_history.id ASC'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'booking_id' => $bookingId,
+        ]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Return existing internal notes for one booking in organization scope.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findInternalNotesForBooking(int $organizationId, int $bookingId): array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT booking_notes.note_type,
+                booking_notes.body,
+                booking_notes.created_by_user_id,
+                booking_notes.created_at,
+                booking_notes.updated_at,
+                users.email AS created_by_email
+             FROM booking_notes
+             INNER JOIN bookings
+                ON bookings.id = booking_notes.booking_id
+             LEFT JOIN users
+                ON users.id = booking_notes.created_by_user_id
+             WHERE booking_notes.booking_id = :booking_id
+                AND bookings.organization_id = :organization_id
+                AND booking_notes.is_internal = 1
+                AND booking_notes.deleted_at IS NULL
+                AND bookings.deleted_at IS NULL
+             ORDER BY booking_notes.created_at ASC, booking_notes.id ASC'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'booking_id' => $bookingId,
+        ]);
+
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Create a booking header and optional customer snapshot.
      *
      * @param array<string, mixed> $data
@@ -334,6 +449,40 @@ final class BookingRepository extends BaseRepository
             static fn (array $row): Booking => new Booking($row),
             $rows
         ));
+    }
+
+    private function adminSelectSql(): string
+    {
+        return 'SELECT bookings.*,
+                organizations.name AS organization_name,
+                booking_customer_snapshots.customer_name,
+                booking_customer_snapshots.customer_email,
+                booking_customer_snapshots.customer_phone,
+                booking_customer_snapshots.company_name,
+                booking_admin_items.rental_item_names
+             FROM bookings
+             INNER JOIN organizations
+                ON organizations.id = bookings.organization_id
+             LEFT JOIN booking_customer_snapshots
+                ON booking_customer_snapshots.booking_id = bookings.id
+             LEFT JOIN (
+                SELECT booking_items.booking_id,
+                    GROUP_CONCAT(rental_items.name ORDER BY booking_items.id ASC SEPARATOR \', \') AS rental_item_names
+                FROM booking_items
+                INNER JOIN rental_items
+                    ON rental_items.id = booking_items.rental_item_id
+                GROUP BY booking_items.booking_id
+             ) AS booking_admin_items
+                ON booking_admin_items.booking_id = bookings.id';
+    }
+
+    private function nullableStatus(?string $statusKey): ?string
+    {
+        if ($statusKey === null || trim($statusKey) === '') {
+            return null;
+        }
+
+        return $this->normalizeStatus($statusKey);
     }
 
     /**

@@ -259,7 +259,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             <nav class="admin-nav" aria-label="Adminnavigation">
                 <a href="/admin">Dashboard</a>
                 <a href="/admin/items">Objekt och priser</a>
-                <span aria-disabled="true">Bokningar</span>
+                <a href="/admin/bookings">Bokningar</a>
                 <span aria-disabled="true">Kunder</span>
                 <span aria-disabled="true">Service</span>
                 <span aria-disabled="true">Inställningar</span>

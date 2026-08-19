@@ -82,6 +82,44 @@ final class BookingItemRepository extends BaseRepository
     }
 
     /**
+     * Find booking items with admin display and immutable price snapshot fields.
+     *
+     * @return Collection<BookingItem>
+     */
+    public function findAdminForBooking(int $organizationId, int $bookingId): Collection
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT booking_items.*,
+                rental_items.public_id AS rental_item_public_id,
+                rental_items.slug AS rental_item_slug,
+                rental_items.name AS rental_item_name,
+                booking_price_snapshots.rate_type AS snapshot_rate_type,
+                booking_price_snapshots.unit_price AS snapshot_unit_price,
+                booking_price_snapshots.currency AS snapshot_currency,
+                booking_price_snapshots.number_of_units AS snapshot_number_of_units,
+                booking_price_snapshots.subtotal_amount AS snapshot_subtotal_amount,
+                booking_price_snapshots.deposit_amount AS snapshot_deposit_amount
+             FROM booking_items
+             INNER JOIN bookings
+                ON bookings.id = booking_items.booking_id
+             INNER JOIN rental_items
+                ON rental_items.id = booking_items.rental_item_id
+             LEFT JOIN booking_price_snapshots
+                ON booking_price_snapshots.booking_item_id = booking_items.id
+             WHERE booking_items.booking_id = :booking_id
+                AND bookings.organization_id = :organization_id
+                AND bookings.deleted_at IS NULL
+             ORDER BY booking_items.id ASC'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'booking_id' => $bookingId,
+        ]);
+
+        return $this->itemsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Create a booking item and immutable price snapshot.
      *
      * @param array<string, mixed> $data

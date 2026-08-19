@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controllers\AdminDashboardController;
+use App\Controllers\AdminBookingController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
@@ -18,6 +19,7 @@ use App\Middleware\AuthorizationMiddleware;
 
 return static function (Router $router): void {
     $authController = new AuthController();
+    $adminBookingController = AdminBookingController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
     $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
@@ -58,6 +60,41 @@ return static function (Router $router): void {
     $router->get(
         '/admin',
         static fn (Request $request): Response => $adminDashboardController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/bookings',
+        static fn (Request $request): Response => $adminBookingController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/bookings/{public_id}',
+        static fn (Request $request): Response => $adminBookingController->show($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/approve',
+        static fn (Request $request): Response => $adminBookingController->approve($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/reject',
+        static fn (Request $request): Response => $adminBookingController->reject($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/cancel',
+        static fn (Request $request): Response => $adminBookingController->cancel($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/start',
+        static fn (Request $request): Response => $adminBookingController->start($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/complete',
+        static fn (Request $request): Response => $adminBookingController->complete($request),
         $systemAdminMiddleware
     );
     $router->get(

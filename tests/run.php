@@ -25,11 +25,14 @@ use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
+use App\Repositories\RoleRepository;
+use App\Repositories\UserRepository;
 use App\Services\BookingAvailabilityService;
 use App\Services\BookingPricingService;
 use App\Services\BookingService;
 use App\Services\BookingStatusService;
 use App\Services\RentalItemPublicationService;
+use App\Services\SessionService;
 
 $basePath = dirname(__DIR__);
 $autoloadPath = $basePath . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
@@ -296,6 +299,60 @@ function requestWithValidCsrf(string $method, string $uri, array $post = []): Re
     ]), [
         'uthyrning_csrf' => $csrfId,
     ]);
+}
+
+function requestWithValidCsrfAndSession(string $method, string $uri, string $sessionToken, array $post = []): Request
+{
+    $csrfId = bin2hex(random_bytes(16));
+    $token = bin2hex(random_bytes(32));
+    $directory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'sessions' . DIRECTORY_SEPARATOR . 'csrf';
+
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    file_put_contents($directory . DIRECTORY_SEPARATOR . $csrfId . '.json', json_encode([
+        'token_hash' => hash('sha256', $token),
+        'expires_at' => time() + 1800,
+    ], JSON_THROW_ON_ERROR), LOCK_EX);
+
+    return new Request($method, $uri, [], array_merge($post, [
+        'csrf_token' => $token,
+    ]), [
+        'uthyrning_csrf' => $csrfId,
+        'uthyrning_session' => $sessionToken,
+    ], [
+        'REMOTE_ADDR' => '127.0.0.1',
+        'HTTP_USER_AGENT' => 'Uthyrning test runner',
+    ]);
+}
+
+/**
+ * @return array{user_id: int, token: string}
+ */
+function createAuthenticatedTestUser(bool $isSystemAdmin): array
+{
+    $suffix = bin2hex(random_bytes(4));
+    $user = (new UserRepository())->createLocalUser(
+        'test-' . $suffix . '@example.com',
+        password_hash('temporary-test-password', PASSWORD_DEFAULT),
+        'Test',
+        $isSystemAdmin ? 'Admin' : 'User'
+    );
+    $userId = (int) ($user->toArray()['id'] ?? 0);
+
+    if ($isSystemAdmin) {
+        $role = (new RoleRepository())->findSystemAdminRole();
+        assertNotNull($role, 'System admin role should exist.');
+        (new RoleRepository())->assignToUser($userId, (int) ($role->toArray()['id'] ?? 0));
+    }
+
+    $session = (new SessionService())->createSession($userId, '127.0.0.1', 'Uthyrning test runner');
+
+    return [
+        'user_id' => $userId,
+        'token' => $session['token'],
+    ];
 }
 
 function collectionContainsSlug(Collection $collection, string $slug): bool
@@ -2690,6 +2747,379 @@ $runner->test('public booking request flow validates input, creates snapshots an
 
         assertSame(404, $router->dispatch(new Request('GET', '/bookings/bkg_missing_' . $suffix . '/confirmation'))->statusCode(), 'Unknown confirmation reference should return safe 404.');
         assertTrue((int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn() > $bookingCountBefore, 'Successful booking should be the only new booking in this flow.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('admin booking management enforces access, scoped display, transitions, history, audit and CSRF', static function () use (
+    $basePath,
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Admin Booking One ' . $suffix, 'admin-booking-one-' . $suffix);
+        $organizationTwoId = createOrganization('Admin Booking Two ' . $suffix, 'admin-booking-two-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for admin booking tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $createItem = static function (
+            int $organizationId,
+            string $slug,
+            string $name
+        ) use ($rentalItemRepository, $itemRateRepository, $categoryId): RentalItem {
+            $item = $rentalItemRepository->create([
+                'organization_id' => $organizationId,
+                'primary_category_id' => $categoryId,
+                'slug' => $slug,
+                'name' => $name,
+                'publication_status_key' => 'published',
+                'is_active' => true,
+                'is_rentable' => true,
+                'deposit_amount' => '500.00',
+            ]);
+
+            $itemRateRepository->create([
+                'organization_id' => $organizationId,
+                'rental_item_id' => (int) $item->toArray()['id'],
+                'rate_type' => 'daily',
+                'amount' => '300.00',
+                'currency' => 'SEK',
+                'is_active' => true,
+            ]);
+
+            return $item;
+        };
+
+        $createBooking = static function (
+            RentalItem $item,
+            string $startDate,
+            string $customerName,
+            array $overrides = []
+        ) use ($bookingService): Booking {
+            $booking = $bookingService->createRequest(array_merge([
+                'rental_item_id' => (int) ($item->toArray()['id'] ?? 0),
+                'start_date' => $startDate,
+                'end_date' => $startDate,
+                'customer_name' => $customerName,
+                'customer_email' => strtolower(str_replace(' ', '-', $customerName)) . '@example.com',
+                'customer_phone' => '070-100 20 30',
+                'company_name' => 'Admin Booking AB',
+                'customer_comment' => 'Kunden behöver hämta tidigt.',
+                'internal_note' => 'Internal admin note is private.',
+            ], $overrides));
+
+            return $booking;
+        };
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $adminItem = $createItem($organizationOneId, 'admin-booking-item-' . $suffix, 'Admin Booking Item ' . $suffix);
+        $otherTenantItem = $createItem($organizationTwoId, 'other-booking-item-' . $suffix, 'Other Booking Item ' . $suffix);
+        $requestBooking = $createBooking($adminItem, '2027-06-01', 'Admin Booking Guest ' . $suffix);
+        $requestBookingData = $requestBooking->toArray();
+        $requestBookingId = (int) ($requestBookingData['id'] ?? 0);
+        $requestPublicId = (string) ($requestBookingData['public_id'] ?? '');
+
+        $noteStatement = $pdo->prepare(
+            'INSERT INTO booking_notes (
+                booking_id,
+                note_type,
+                body,
+                is_internal,
+                created_at,
+                updated_at
+            ) VALUES (
+                :booking_id,
+                :note_type,
+                :body,
+                1,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $noteStatement->execute([
+            'booking_id' => $requestBookingId,
+            'note_type' => 'internal',
+            'body' => 'Existing internal booking note.',
+        ]);
+
+        $otherTenantBooking = $createBooking($otherTenantItem, '2027-06-10', 'Other Tenant Guest ' . $suffix);
+        assertSame(
+            null,
+            $bookingRepository->findAdminByPublicId((string) $otherTenantBooking->toArray()['public_id'], $organizationOneId),
+            'Scoped admin lookup should not leak cross-tenant bookings.'
+        );
+
+        $adminSession = createAuthenticatedTestUser(true);
+        $userSession = createAuthenticatedTestUser(false);
+        $adminToken = $adminSession['token'];
+        $adminUserId = $adminSession['user_id'];
+        $adminCookies = ['uthyrning_session' => $adminToken];
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+
+        $unauthenticatedList = $router->dispatch(new Request('GET', '/admin/bookings'));
+        assertSame(302, $unauthenticatedList->statusCode(), 'Unauthenticated users should be redirected from admin bookings.');
+        assertSame('/login', $unauthenticatedList->headers()['Location'] ?? null, 'Unauthenticated route should redirect to login.');
+
+        $forbiddenList = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings',
+            [],
+            [],
+            ['uthyrning_session' => $userSession['token']],
+            $server
+        ));
+        assertSame(403, $forbiddenList->statusCode(), 'Users without system_admin role should be denied.');
+
+        $adminList = $router->dispatch(new Request('GET', '/admin/bookings', [], [], $adminCookies, $server));
+        assertSame(200, $adminList->statusCode(), 'system_admin should show booking list.');
+        assertTrue(str_contains($adminList->content(), $requestPublicId), 'Admin list should render booking public id.');
+        assertTrue(str_contains($adminList->content(), 'Admin Booking Guest ' . $suffix), 'Admin list should render customer snapshot name.');
+        assertTrue(str_contains($adminList->content(), 'Admin Booking Item ' . $suffix), 'Admin list should render item name.');
+        assertTrue(str_contains($adminList->content(), '300.00 SEK'), 'Admin list should render total price and currency.');
+
+        $filteredList = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings?status=request',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $filteredList->statusCode(), 'Status-filtered admin list should render.');
+        assertTrue(str_contains($filteredList->content(), $requestPublicId), 'Status filter should include request booking.');
+
+        $detail = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($requestPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $detail->statusCode(), 'Admin detail should open by public id.');
+        $detailContent = $detail->content();
+        assertTrue(str_contains($detailContent, 'Kundsnapshot'), 'Admin detail should show customer snapshot section.');
+        assertTrue(str_contains($detailContent, 'Admin Booking Guest ' . $suffix), 'Admin detail should show customer name.');
+        assertTrue(str_contains($detailContent, 'Kunden behöver hämta tidigt.'), 'Admin detail should show customer comment.');
+        assertTrue(str_contains($detailContent, 'Internal admin note is private.'), 'Admin detail should show booking internal note.');
+        assertTrue(str_contains($detailContent, 'Existing internal booking note.'), 'Admin detail should show existing internal notes.');
+        assertTrue(str_contains($detailContent, 'Statushistorik'), 'Admin detail should show status history.');
+        assertTrue(str_contains($detailContent, 'Förfrågan'), 'Admin detail should render readable status history.');
+        assertTrue(str_contains($detailContent, '/admin/bookings/' . rawurlencode($requestPublicId) . '/approve'), 'Admin detail should render approve action.');
+
+        $missingResponse = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/bkg_missing_' . $suffix,
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(404, $missingResponse->statusCode(), 'Unknown booking public id should return safe 404.');
+
+        $csrfBooking = $createBooking($adminItem, '2027-06-02', 'Missing CSRF Guest ' . $suffix);
+        $csrfPublicId = (string) ($csrfBooking->toArray()['public_id'] ?? '');
+        $missingCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/bookings/' . rawurlencode($csrfPublicId) . '/approve',
+            [],
+            ['status_key' => 'approved'],
+            $adminCookies,
+            $server
+        ));
+        assertSame(302, $missingCsrf->statusCode(), 'POST without CSRF should be rejected through a safe redirect.');
+        assertSame(
+            'request',
+            $bookingRepository->findByPublicId($csrfPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Missing CSRF should not change booking status.'
+        );
+
+        $manipulatedBooking = $createBooking($adminItem, '2027-06-03', 'Manipulated Status Guest ' . $suffix);
+        $manipulatedPublicId = (string) ($manipulatedBooking->toArray()['public_id'] ?? '');
+        $approveResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($manipulatedPublicId) . '/approve',
+            $adminToken,
+            ['status_key' => 'completed']
+        ));
+        assertSame(302, $approveResponse->statusCode(), 'Approved transition should redirect after success.');
+        $approvedBooking = $bookingRepository->findByPublicId($manipulatedPublicId, $organizationOneId);
+        assertSame('approved', $approvedBooking?->toArray()['status_key'] ?? null, 'Route should decide status and ignore manipulated POST status.');
+
+        $historyActorStatement = $pdo->prepare(
+            'SELECT changed_by_user_id
+             FROM booking_status_history
+             WHERE booking_id = :booking_id
+                AND to_status_key = :status_key
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $historyActorStatement->execute([
+            'booking_id' => (int) ($approvedBooking?->toArray()['id'] ?? 0),
+            'status_key' => 'approved',
+        ]);
+        assertSame($adminUserId, (int) $historyActorStatement->fetchColumn(), 'Admin actor should be stored in status history.');
+
+        $auditCount = static function (string $eventName, int $bookingId) use ($pdo): int {
+            $statement = $pdo->prepare(
+                'SELECT COUNT(*)
+                 FROM audit_logs
+                 WHERE event_name = :event_name
+                    AND actor_user_id IS NOT NULL
+                    AND subject_type = :subject_type
+                    AND subject_id = :subject_id'
+            );
+            $statement->execute([
+                'event_name' => $eventName,
+                'subject_type' => 'booking',
+                'subject_id' => $bookingId,
+            ]);
+
+            return (int) $statement->fetchColumn();
+        };
+
+        assertSame(
+            1,
+            $auditCount('booking_approved', (int) ($approvedBooking?->toArray()['id'] ?? 0)),
+            'booking_approved audit event should be recorded with admin actor.'
+        );
+
+        $rejectBooking = $createBooking($adminItem, '2027-06-04', 'Rejected Guest ' . $suffix);
+        $rejectResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode((string) ($rejectBooking->toArray()['public_id'] ?? '')) . '/reject',
+            $adminToken
+        ));
+        assertSame(302, $rejectResponse->statusCode(), 'Reject transition should redirect.');
+        assertSame(
+            'rejected',
+            $bookingRepository->findByPublicId((string) ($rejectBooking->toArray()['public_id'] ?? ''), $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Request booking should be rejectable.'
+        );
+        assertSame(1, $auditCount('booking_rejected', (int) ($rejectBooking->toArray()['id'] ?? 0)), 'booking_rejected audit should be recorded.');
+
+        $cancelBooking = $createBooking($adminItem, '2027-06-05', 'Cancelled Guest ' . $suffix);
+        $cancelResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode((string) ($cancelBooking->toArray()['public_id'] ?? '')) . '/cancel',
+            $adminToken
+        ));
+        assertSame(302, $cancelResponse->statusCode(), 'Cancel transition should redirect.');
+        assertSame(
+            'cancelled',
+            $bookingRepository->findByPublicId((string) ($cancelBooking->toArray()['public_id'] ?? ''), $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Request booking should be cancellable.'
+        );
+        assertSame(1, $auditCount('booking_cancelled', (int) ($cancelBooking->toArray()['id'] ?? 0)), 'booking_cancelled audit should be recorded.');
+
+        $flowBooking = $createBooking($adminItem, '2027-06-06', 'Lifecycle Guest ' . $suffix);
+        $flowPublicId = (string) ($flowBooking->toArray()['public_id'] ?? '');
+        $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($flowPublicId) . '/approve',
+            $adminToken
+        ));
+        $startResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($flowPublicId) . '/start',
+            $adminToken
+        ));
+        assertSame(302, $startResponse->statusCode(), 'Approved booking should be startable.');
+        assertSame(
+            'active',
+            $bookingRepository->findByPublicId($flowPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Approved booking should transition to active.'
+        );
+        assertSame(1, $auditCount('booking_started', (int) ($flowBooking->toArray()['id'] ?? 0)), 'booking_started audit should be recorded.');
+
+        $completeResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($flowPublicId) . '/complete',
+            $adminToken
+        ));
+        assertSame(302, $completeResponse->statusCode(), 'Active booking should be completable.');
+        assertSame(
+            'completed',
+            $bookingRepository->findByPublicId($flowPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Active booking should transition to completed.'
+        );
+        assertSame(1, $auditCount('booking_completed', (int) ($flowBooking->toArray()['id'] ?? 0)), 'booking_completed audit should be recorded.');
+
+        $invalidTransitionBooking = $createBooking($adminItem, '2027-06-07', 'Invalid Transition Guest ' . $suffix);
+        $invalidTransitionResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode((string) ($invalidTransitionBooking->toArray()['public_id'] ?? '')) . '/complete',
+            $adminToken
+        ));
+        assertSame(302, $invalidTransitionResponse->statusCode(), 'Invalid transition should redirect with a safe error.');
+        assertSame(
+            'request',
+            $bookingRepository->findByPublicId((string) ($invalidTransitionBooking->toArray()['public_id'] ?? ''), $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Invalid transition should not alter status.'
+        );
+
+        $activeCancelBooking = $createBooking($adminItem, '2027-06-08', 'Active Cancel Guest ' . $suffix);
+        $activeCancelPublicId = (string) ($activeCancelBooking->toArray()['public_id'] ?? '');
+        $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/approve',
+            $adminToken
+        ));
+        $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/start',
+            $adminToken
+        ));
+        $activeCancelResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/cancel',
+            $adminToken
+        ));
+        assertSame(302, $activeCancelResponse->statusCode(), 'Active booking should be cancellable with administrative reason.');
+        assertSame(
+            'cancelled',
+            $bookingRepository->findByPublicId($activeCancelPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
+            'Active cancellation should persist.'
+        );
+
+        $confirmationResponse = $router->dispatch(new Request(
+            'GET',
+            '/bookings/' . rawurlencode($requestPublicId) . '/confirmation'
+        ));
+        assertSame(200, $confirmationResponse->statusCode(), 'Public confirmation flow should continue to work.');
+        assertFalse(str_contains($confirmationResponse->content(), 'Internal admin note is private.'), 'Public confirmation should not expose internal notes.');
+
+        $publicItemData = $adminItem->toArray();
+        $publicFormPath = '/items/'
+            . rawurlencode((string) ($publicItemData['public_id'] ?? ''))
+            . '/'
+            . rawurlencode((string) ($publicItemData['slug'] ?? ''))
+            . '/book';
+        assertSame(200, $router->dispatch(new Request('GET', $publicFormPath))->statusCode(), 'Public booking form should continue to work.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {
