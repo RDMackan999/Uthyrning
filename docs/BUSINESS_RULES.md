@@ -303,13 +303,62 @@ Slutförd
 
 # Kalender
 
-Kalendern visar:
+Version 1 använder bokningsdomänen som källa till tillgänglighet. Tillgänglighet ska beräknas från publicerade objekt, aktivt dagspris, aktiv kategori och blockerande bokningsstatusar. Kalendern får inte vara egen källa till sanning i Version 1.
+
+Blockerande bokningsstatusar:
+
+- `request`
+- `approved`
+- `active`
+
+Icke blockerande bokningsstatusar:
+
+- `rejected`
+- `cancelled`
+- `completed`
+
+Publik kalender ska endast visa:
 
 - Lediga datum
-- Bokade datum
-- Spärrade datum
+- Ej tillgängliga datum
+- Preliminärt valt startdatum
+- Preliminärt valt slutdatum
+- Vald period
 
-Administratören kan blockera datum.
+Publik kalender får inte visa:
+
+- kundnamn
+- företag
+- bokningens `public_id`
+- intern bokningsstatus
+- kommentarer
+- priser som inte redan visas publikt
+- administratörsanteckningar
+
+För kund ska kalendern endast svara på frågan om objektet kan bokas en viss dag eller period.
+
+Administrativ kalender kan senare skilja på:
+
+- förfrågan
+- godkänd bokning
+- aktiv bokning
+- manuell blockering
+- service
+- transport eller buffertdag
+
+Manuell blockering ska designas som separat kalenderkälla när funktionen prioriteras. Den ska kunna användas för egen användning, transport, service, buffert och andra perioder då objektet inte ska kunna bokas. Rekommenderad nästa design är en separat Sprint 6B för manuella blockeringar innan implementation.
+
+Service och underhåll ska senare påverka tillgänglighet genom egna service- eller blockeringsperioder. Publik kalender ska även då bara visa att datumet inte är tillgängligt, inte varför.
+
+Publik kalender ska begränsa hur långt fram användaren kan fråga efter tillgänglighet. Version 1 ska använda högst 6 månader framåt per fråga. Obegränsade kalenderfrågor är inte tillåtna.
+
+Om ett publikt JSON-endpoint införs senare ska det endast acceptera publikt objekt-id eller slug samt `from` och `to` inom tillåtet intervall. Svaret ska bara innehålla datum och tillgänglighetsläge, till exempel `available` eller `unavailable`. Endpointet ska ha rate limiting, kunna använda kort cache för anonymiserad kalenderdata och aldrig returnera intern bokningsinformation.
+
+Kalenderdagar ska hanteras som `DATE` och får inte flyttas av tidszonskonvertering. Alla tidsstämplar lagras i UTC, men kalenderdagar tolkas enligt svensk lokal verksamhetsdag.
+
+Kalendern är alltid informativ fram till att bokningsförfrågan skickas. Servern ska kontrollera tillgänglighet igen vid submit, eftersom ett datum kan hinna bokas efter att kalendern visades.
+
+Tillgänglighetslogiken ska återanvända samma överlappsregel som `BookingAvailabilityService`.
 
 ---
 
