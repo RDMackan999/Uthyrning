@@ -16,6 +16,79 @@ final class AvailabilityCalendarService
 {
     private const MAX_PUBLIC_MONTHS = 6;
 
+    /**
+     * Build public-safe availability data grouped by month.
+     *
+     * @return array<string, mixed>
+     */
+    public function publicMonths(
+        int $organizationId,
+        int $rentalItemId,
+        ?string $selectedStartDate = null,
+        ?string $selectedEndDate = null
+    ): array {
+        $today = new DateTimeImmutable('today');
+        $maxDate = $this->maxPublicDate();
+        $selectedStart = $this->optionalDate($selectedStartDate);
+        $activeMonth = $selectedStart !== null && $selectedStart >= $today && $selectedStart <= $maxDate
+            ? $selectedStart->format('Y-m')
+            : $today->format('Y-m');
+        $range = $this->publicRange(
+            $organizationId,
+            $rentalItemId,
+            $today->modify('first day of this month')->format('Y-m-d'),
+            $maxDate->format('Y-m-d'),
+            $selectedStartDate,
+            $selectedEndDate
+        );
+        $months = [];
+
+        foreach ($range['days'] as $day) {
+            $date = (string) ($day['date'] ?? '');
+            $monthKey = substr($date, 0, 7);
+
+            if (!isset($months[$monthKey])) {
+                $monthDate = $this->date($monthKey . '-01', 'month');
+                $months[$monthKey] = [
+                    'key' => $monthKey,
+                    'label' => $this->monthLabel($monthDate),
+                    'leading_empty_days' => (int) $monthDate->format('N') - 1,
+                    'is_active' => $monthKey === $activeMonth,
+                    'days' => [],
+                ];
+            }
+
+            $months[$monthKey]['days'][] = $day;
+        }
+
+        if ($months === []) {
+            return $range + [
+                'months' => [],
+                'weekdays' => $this->weekdays(),
+                'min_date' => $today->format('Y-m-d'),
+                'max_date' => $maxDate->format('Y-m-d'),
+            ];
+        }
+
+        $monthValues = array_values($months);
+        $activeIndex = 0;
+
+        foreach ($monthValues as $index => $month) {
+            if (($month['key'] ?? '') === $activeMonth) {
+                $activeIndex = $index;
+                break;
+            }
+        }
+
+        return $range + [
+            'months' => $monthValues,
+            'weekdays' => $this->weekdays(),
+            'active_month_index' => $activeIndex,
+            'min_date' => $today->format('Y-m-d'),
+            'max_date' => $maxDate->format('Y-m-d'),
+        ];
+    }
+
     public function __construct(
         private readonly BookingAvailabilityService $availabilityService = new BookingAvailabilityService()
     ) {
@@ -72,12 +145,13 @@ final class AvailabilityCalendarService
     ): array {
         $from = $this->date($fromDate, 'from');
         $to = $this->date($toDate, 'to');
+        $today = new DateTimeImmutable('today');
 
         if ($from > $to) {
             throw new BookingException('Calendar from date must be before or equal to to date.');
         }
 
-        $maxDate = (new DateTimeImmutable('today'))->modify('+' . self::MAX_PUBLIC_MONTHS . ' months');
+        $maxDate = $this->maxPublicDate();
         if ($to > $maxDate) {
             throw new BookingException('Public availability range is too large.');
         }
@@ -89,7 +163,9 @@ final class AvailabilityCalendarService
 
         foreach ($period as $day) {
             $date = $day->format('Y-m-d');
-            $isAvailable = $this->availabilityService->isAvailable($organizationId, $rentalItemId, $date, $date);
+            $isPast = $day < $today;
+            $isAvailable = !$isPast
+                && $this->availabilityService->isAvailable($organizationId, $rentalItemId, $date, $date);
             $isSelectedStart = $selectedStart !== null && $date === $selectedStart->format('Y-m-d');
             $isSelectedEnd = $selectedEnd !== null && $date === $selectedEnd->format('Y-m-d');
             $isInSelectedRange = $selectedStart !== null
@@ -102,16 +178,20 @@ final class AvailabilityCalendarService
                 'day_label' => $day->format('j'),
                 'state' => $isAvailable ? 'available' : 'unavailable',
                 'is_available' => $isAvailable,
+                'is_today' => $date === $today->format('Y-m-d'),
+                'is_past' => $isPast,
                 'is_selected_start' => $isSelectedStart,
                 'is_selected_end' => $isSelectedEnd,
                 'is_selected' => $isSelectedStart || $isSelectedEnd || $isInSelectedRange,
-                'aria_label' => $date . ' ' . ($isAvailable ? 'ledigt' : 'ej tillgängligt'),
+                'aria_label' => $this->dayAriaLabel($date, $isAvailable, $date === $today->format('Y-m-d')),
             ];
         }
 
         return [
             'from_date' => $from->format('Y-m-d'),
             'to_date' => $to->format('Y-m-d'),
+            'min_date' => $today->format('Y-m-d'),
+            'max_date' => $maxDate->format('Y-m-d'),
             'selected_start_date' => $selectedStart?->format('Y-m-d'),
             'selected_end_date' => $selectedEnd?->format('Y-m-d'),
             'days' => $days,
@@ -143,5 +223,51 @@ final class AvailabilityCalendarService
         }
 
         return $parsed;
+    }
+
+    private function maxPublicDate(): DateTimeImmutable
+    {
+        return (new DateTimeImmutable('today'))->modify('+' . self::MAX_PUBLIC_MONTHS . ' months');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function weekdays(): array
+    {
+        return ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+    }
+
+    private function monthLabel(DateTimeImmutable $date): string
+    {
+        $names = [
+            '01' => 'Januari',
+            '02' => 'Februari',
+            '03' => 'Mars',
+            '04' => 'April',
+            '05' => 'Maj',
+            '06' => 'Juni',
+            '07' => 'Juli',
+            '08' => 'Augusti',
+            '09' => 'September',
+            '10' => 'Oktober',
+            '11' => 'November',
+            '12' => 'December',
+        ];
+
+        return ($names[$date->format('m')] ?? $date->format('F')) . ' ' . $date->format('Y');
+    }
+
+    private function dayAriaLabel(string $date, bool $isAvailable, bool $isToday): string
+    {
+        $parts = [$date];
+
+        if ($isToday) {
+            $parts[] = 'idag';
+        }
+
+        $parts[] = $isAvailable ? 'ledigt' : 'ej tillgängligt';
+
+        return implode(', ', $parts);
     }
 }

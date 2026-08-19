@@ -160,6 +160,7 @@ final class PublicBookingController extends BaseController
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
             'pricePreview' => $pricePreview,
             'availabilityCalendar' => $availabilityCalendar,
+            'publicScripts' => ['/assets/scripts/booking-calendar.js'],
         ]);
     }
 
@@ -174,7 +175,7 @@ final class PublicBookingController extends BaseController
         $itemData = $item->toArray();
 
         try {
-            return $this->calendarService->publicMonth(
+            return $this->calendarService->publicMonths(
                 (int) ($itemData['organization_id'] ?? 0),
                 (int) ($itemData['id'] ?? 0),
                 $this->stringValue($data['start_date'] ?? null),

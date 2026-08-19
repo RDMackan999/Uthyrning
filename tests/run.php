@@ -13,6 +13,7 @@ use App\Core\Response;
 use App\Core\Router;
 use App\Core\SeederRunner;
 use App\Core\View;
+use App\Http\BookingRequestFormRequest;
 use App\Http\ItemRateFormRequest;
 use App\Http\RentalItemFormRequest;
 use App\Models\Booking;
@@ -2646,9 +2647,16 @@ $runner->test('public booking request flow validates input, creates snapshots an
         $itemData = $bookableItem->toArray();
         $detailPath = '/items/' . rawurlencode((string) $itemData['public_id']) . '/' . rawurlencode((string) $itemData['slug']);
         $bookPath = $detailPath . '/book';
+        $today = new DateTimeImmutable('today');
+        $bookingStartDate = $today->modify('+14 days')->format('Y-m-d');
+        $bookingEndDate = $today->modify('+16 days')->format('Y-m-d');
+        $invalidStartDate = $today->modify('+18 days')->format('Y-m-d');
+        $invalidEndDate = $today->modify('+17 days')->format('Y-m-d');
+        $overlapStartDate = $bookingEndDate;
+        $overlapEndDate = $today->modify('+17 days')->format('Y-m-d');
         $validPost = [
-            'start_date' => '2027-05-10',
-            'end_date' => '2027-05-12',
+            'start_date' => $bookingStartDate,
+            'end_date' => $bookingEndDate,
             'customer_name' => 'Public Guest',
             'customer_email' => 'Public.Guest@Example.COM',
             'customer_phone' => '070-111 22 33',
@@ -2694,7 +2702,7 @@ $runner->test('public booking request flow validates input, creates snapshots an
             'invalid email' => array_merge($validPost, ['customer_email' => 'not-an-email']),
             'missing start date' => array_merge($validPost, ['start_date' => '']),
             'missing end date' => array_merge($validPost, ['end_date' => '']),
-            'start after end' => array_merge($validPost, ['start_date' => '2027-05-13', 'end_date' => '2027-05-12']),
+            'start after end' => array_merge($validPost, ['start_date' => $invalidStartDate, 'end_date' => $invalidEndDate]),
         ];
 
         foreach ($validationCases as $case => $post) {
@@ -2769,8 +2777,8 @@ $runner->test('public booking request flow validates input, creates snapshots an
         $overlapCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn();
         $overlapResponse = $router->dispatch(requestWithValidCsrf('POST', $bookPath, array_merge($validPost, [
             'customer_email' => 'second@example.com',
-            'start_date' => '2027-05-12',
-            'end_date' => '2027-05-13',
+            'start_date' => $overlapStartDate,
+            'end_date' => $overlapEndDate,
         ])));
         assertSame(200, $overlapResponse->statusCode(), 'Overlapping booking should render form with safe error.');
         assertTrue(
@@ -2786,8 +2794,8 @@ $runner->test('public booking request flow validates input, creates snapshots an
         assertTrue(str_contains($confirmationContent, 'Bokningsf&ouml;rfr&aringgan mottagen'), 'Confirmation should show received message.');
         assertTrue(str_contains($confirmationContent, $publicId), 'Confirmation should show public booking reference.');
         assertTrue(str_contains($confirmationContent, 'Public Booking Main ' . $suffix), 'Confirmation should show item name.');
-        assertTrue(str_contains($confirmationContent, '2027-05-10'), 'Confirmation should show start date.');
-        assertTrue(str_contains($confirmationContent, '2027-05-12'), 'Confirmation should show end date.');
+        assertTrue(str_contains($confirmationContent, $bookingStartDate), 'Confirmation should show start date.');
+        assertTrue(str_contains($confirmationContent, $bookingEndDate), 'Confirmation should show end date.');
         assertTrue(str_contains($confirmationContent, '750 SEK'), 'Confirmation should show price snapshot.');
         assertFalse(str_contains($confirmationContent, (string) $bookingId . '</span>'), 'Confirmation should not expose technical booking id.');
         assertFalse(str_contains($confirmationContent, 'Public.Guest@Example.COM'), 'Confirmation should not expose submitted customer email.');
@@ -3446,6 +3454,203 @@ $runner->test('public availability calendar exposes only safe day states', stati
         assertTrue(str_contains($response->content(), 'aria-disabled'), 'Public calendar should include accessibility state.');
         assertFalse(str_contains($response->content(), 'Private service reason'), 'Public calendar should not expose internal block reason.');
         assertFalse(str_contains($response->content(), 'maintenance'), 'Public calendar should not expose internal block type.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('interactive public calendar keeps backend availability as source of truth', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $availabilityBlockRepository,
+    $availabilityCalendarService,
+    $bookingService,
+    $bookingStatusService,
+    $basePath
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Interactive Calendar ' . $suffix, 'interactive-calendar-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for interactive calendar tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'interactive-calendar-item-' . $suffix,
+            'Interactive Calendar Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemData = $item->toArray();
+        $rentalItemId = (int) $itemData['id'];
+        $today = new DateTimeImmutable('today');
+        $pastDate = $today->modify('-1 day')->format('Y-m-d');
+        $startDate = $today->modify('+6 days')->format('Y-m-d');
+        $blockedMiddleDate = $today->modify('+7 days')->format('Y-m-d');
+        $endDate = $today->modify('+8 days')->format('Y-m-d');
+        $sameDayDate = $today->modify('+9 days')->format('Y-m-d');
+        $bookingBlockedDate = $today->modify('+10 days')->format('Y-m-d');
+        $rejectedDate = $today->modify('+11 days')->format('Y-m-d');
+        $cancelledDate = $today->modify('+12 days')->format('Y-m-d');
+        $completedDate = $today->modify('+13 days')->format('Y-m-d');
+        $tooFarDate = $today->modify('+6 months')->modify('+1 day')->format('Y-m-d');
+
+        $availabilityBlockRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $blockedMiddleDate,
+            'end_date' => $blockedMiddleDate,
+            'reason_code' => 'manual',
+            'internal_note' => 'Private blocked middle date',
+        ]);
+
+        $blockingBooking = $bookingService->createRequest([
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $bookingBlockedDate,
+            'end_date' => $bookingBlockedDate,
+            'customer_name' => 'Secret Booking Customer',
+            'customer_email' => 'secret-booking@example.com',
+            'customer_phone' => '070-999 99 99',
+        ]);
+
+        $rejectedBooking = $bookingService->createRequest([
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $rejectedDate,
+            'end_date' => $rejectedDate,
+            'customer_name' => 'Rejected Calendar Guest',
+            'customer_email' => 'rejected-calendar@example.com',
+            'customer_phone' => '070-111 11 12',
+        ]);
+        $bookingStatusService->transition($organizationId, (int) $rejectedBooking->toArray()['id'], 'rejected');
+
+        $cancelledBooking = $bookingService->createRequest([
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $cancelledDate,
+            'end_date' => $cancelledDate,
+            'customer_name' => 'Cancelled Calendar Guest',
+            'customer_email' => 'cancelled-calendar@example.com',
+            'customer_phone' => '070-111 11 13',
+        ]);
+        $bookingStatusService->transition($organizationId, (int) $cancelledBooking->toArray()['id'], 'cancelled');
+
+        $completedBooking = $bookingService->createRequest([
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $completedDate,
+            'end_date' => $completedDate,
+            'customer_name' => 'Completed Calendar Guest',
+            'customer_email' => 'completed-calendar@example.com',
+            'customer_phone' => '070-111 11 14',
+        ]);
+        $bookingStatusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'approved');
+        $bookingStatusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'active');
+        $bookingStatusService->transition($organizationId, (int) $completedBooking->toArray()['id'], 'completed');
+
+        $calendar = $availabilityCalendarService->publicMonths(
+            $organizationId,
+            $rentalItemId,
+            $startDate,
+            $endDate
+        );
+
+        assertTrue(is_array($calendar['months'] ?? null), 'Interactive calendar should expose grouped months.');
+        assertTrue(count($calendar['months']) >= 2, 'Interactive calendar should include month navigation data.');
+        assertSame($today->format('Y-m-d'), $calendar['min_date'] ?? null, 'Calendar should expose today as minimum public date.');
+        assertSame($today->modify('+6 months')->format('Y-m-d'), $calendar['max_date'] ?? null, 'Calendar should expose six-month maximum public date.');
+
+        $states = [];
+        foreach ($calendar['days'] as $day) {
+            assertFalse(array_key_exists('reason_code', $day), 'Calendar day should not expose manual block reason.');
+            assertFalse(array_key_exists('booking_status', $day), 'Calendar day should not expose booking status.');
+            assertFalse(array_key_exists('booking_public_id', $day), 'Calendar day should not expose booking public id.');
+            assertFalse(array_key_exists('customer_email', $day), 'Calendar day should not expose customer data.');
+            $states[$day['date']] = $day['state'];
+        }
+
+        assertSame('unavailable', $states[$pastDate] ?? null, 'Past date should be unavailable in public calendar.');
+        assertSame('available', $states[$startDate] ?? null, 'Start date should be available.');
+        assertSame('unavailable', $states[$blockedMiddleDate] ?? null, 'Manual block should be unavailable.');
+        assertSame('unavailable', $states[$bookingBlockedDate] ?? null, 'Blocking booking should be unavailable.');
+        assertSame('available', $states[$rejectedDate] ?? null, 'Rejected booking should not block calendar.');
+        assertSame('available', $states[$cancelledDate] ?? null, 'Cancelled booking should not block calendar.');
+        assertSame('available', $states[$completedDate] ?? null, 'Completed booking should not block calendar.');
+
+        $formRequest = new BookingRequestFormRequest();
+        $pastValidation = $formRequest->validate([
+            'start_date' => $pastDate,
+            'end_date' => $today->format('Y-m-d'),
+            'customer_name' => 'Past Guest',
+            'customer_email' => 'past@example.com',
+            'customer_phone' => '070-123 45 67',
+        ], (string) $itemData['public_id'], (string) $itemData['slug']);
+        assertTrue(isset($pastValidation['errors']['start_date']), 'Past booking start date should be rejected server-side.');
+
+        $tooFarValidation = $formRequest->validate([
+            'start_date' => $tooFarDate,
+            'end_date' => $tooFarDate,
+            'customer_name' => 'Future Guest',
+            'customer_email' => 'future@example.com',
+            'customer_phone' => '070-123 45 68',
+        ], (string) $itemData['public_id'], (string) $itemData['slug']);
+        assertTrue(isset($tooFarValidation['errors']['end_date']), 'Booking beyond six months should be rejected server-side.');
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+        $bookPath = '/items/'
+            . rawurlencode((string) ($itemData['public_id'] ?? ''))
+            . '/'
+            . rawurlencode((string) ($itemData['slug'] ?? ''))
+            . '/book';
+
+        $formResponse = $router->dispatch(new Request('GET', $bookPath));
+        assertSame(200, $formResponse->statusCode(), 'Public booking form should render.');
+        assertTrue(str_contains($formResponse->content(), 'booking-calendar.js'), 'Public booking form should load the progressive calendar script.');
+        assertTrue(str_contains($formResponse->content(), 'data-calendar-date'), 'Calendar should render date buttons.');
+        assertTrue(str_contains($formResponse->content(), 'data-calendar-available="0"'), 'Calendar should expose only public unavailable state.');
+        assertTrue(str_contains($formResponse->content(), 'Rensa datumval'), 'Calendar should allow clearing selection.');
+        assertFalse(str_contains($formResponse->content(), 'Private blocked middle date'), 'Calendar HTML should not expose internal block notes.');
+        assertFalse(str_contains($formResponse->content(), 'Secret Booking Customer'), 'Calendar HTML should not expose booking customer name.');
+        assertFalse(str_contains($formResponse->content(), 'secret-booking@example.com'), 'Calendar HTML should not expose booking customer email.');
+        assertFalse(str_contains($formResponse->content(), (string) ($blockingBooking->toArray()['public_id'] ?? '')), 'Calendar HTML should not expose booking public id.');
+
+        $bookingCountBeforeBlockedPost = (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn();
+        $blockedPostResponse = $router->dispatch(requestWithValidCsrf('POST', $bookPath, [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'customer_name' => 'Blocked Period Guest',
+            'customer_email' => 'blocked-period@example.com',
+            'customer_phone' => '070-222 22 22',
+        ]));
+        assertSame(200, $blockedPostResponse->statusCode(), 'Period with blocked middle date should render safe error.');
+        assertTrue(
+            str_contains($blockedPostResponse->content(), 'inte tillgängligt')
+            || str_contains($blockedPostResponse->content(), 'inte tillg&auml;ngligt'),
+            'Blocked period should show user-friendly unavailable message.'
+        );
+        assertSame($bookingCountBeforeBlockedPost, (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn(), 'Blocked period should not create booking.');
+
+        $sameDayResponse = $router->dispatch(requestWithValidCsrf('POST', $bookPath, [
+            'start_date' => $sameDayDate,
+            'end_date' => $sameDayDate,
+            'customer_name' => 'Same Day Guest',
+            'customer_email' => 'same-day@example.com',
+            'customer_phone' => '070-333 33 33',
+        ]));
+        assertSame(302, $sameDayResponse->statusCode(), 'Same-day no-JS date field booking should work when available.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {
