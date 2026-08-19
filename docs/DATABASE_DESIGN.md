@@ -1243,6 +1243,101 @@ Framtida utbyggnad:
 
 Risk: ekonomi blir snabbt juridiskt och bokföringsmässigt känsligt. Version 1 bör bara förbereda modellen och hantera manuell status tills Fortnox/Swish är specificerat.
 
+### Notifieringar
+
+Notifieringsdomänen ska stödja bokningsrelaterade e-postmeddelanden i Version 1 och samtidigt vara enkel att bygga ut med fler kanaler senare.
+
+Rekommenderade tabeller:
+
+- `notifications`
+- `notification_attempts`
+- `notification_templates` senare, om mallar ska kunna ändras i admin eller per organisation
+
+`notifications` är huvudtabellen för planerad, skickad eller misslyckad notifiering.
+
+Rekommenderade fält:
+
+- `id`
+- `public_id`
+- `organization_id`
+- `booking_id` nullable
+- `event_key`, till exempel `booking_created`
+- `channel_key`, till exempel `email`
+- `recipient_type`, till exempel `customer`, `admin` eller `renter`
+- `recipient_email`
+- `recipient_email_normalized`
+- `template_key`
+- `subject`
+- `status_key`, till exempel `pending`, `sent`, `failed` eller `cancelled`
+- `idempotency_key`
+- `attempts_count`
+- `max_attempts`
+- `last_error_code` nullable
+- `last_error_summary` nullable
+- `scheduled_at` nullable
+- `sent_at` nullable
+- `failed_at` nullable
+- `created_at`
+- `updated_at`
+
+`notification_attempts` sparar varje leveransförsök utan att lagra fullständig e-postbody.
+
+Rekommenderade fält:
+
+- `id`
+- `notification_id`
+- `attempt_number`
+- `transport_key`
+- `status_key`
+- `provider_message_id` nullable
+- `error_code` nullable
+- `error_summary` nullable
+- `attempted_at`
+- `created_at`
+
+Relationer:
+
+- `notifications.organization_id` refererar `organizations.id`.
+- `notifications.booking_id` refererar `bookings.id` när notifieringen gäller en bokning.
+- `notification_attempts.notification_id` refererar `notifications.id`.
+- Framtida `notification_templates` bör kunna vara globala eller organisationsspecifika.
+
+Delete-regler:
+
+- Notifieringar ska normalt inte hard delete:as eftersom de är del av drift- och kundhistorik.
+- GDPR-hantering bör ske genom retention och anonymisering av mottagaruppgifter när lagringsändamålet löpt ut.
+- `notification_attempts` ska följa sin huvudnotifiering och inte finnas utan `notifications`.
+
+Index:
+
+- Unikt index på `idempotency_key`.
+- Index på `organization_id`, `status_key` och `scheduled_at` för framtida kö eller adminvy.
+- Index på `booking_id` och `event_key` för bokningshistorik.
+- Index på `recipient_email_normalized` för felsökning och kundrelaterad historik.
+
+Källa till mottagare:
+
+- Kundnotiser för bokning använder bokningens kundsnapshot som källa till sanning.
+- Admin-/uthyrarnotiser använder organisationsinställning eller aktiva användare med relevant roll.
+- Hårdkodade administratörsadresser är inte tillåtna.
+
+Idempotency:
+
+En notifiering ska kunna skapas idempotent per `event_key`, bokning, kanal, mottagare och mall. Detta förhindrar att samma statusövergång eller retry skapar dubbletter.
+
+Retry:
+
+Version 1 bör lagra misslyckade leveransförsök och tillåta manuellt omskick. Automatisk kö, backoff och worker kan införas senare utan att förändra bokningsdomänen.
+
+Framtida utbyggnad:
+
+- SMS och push genom fler `channel_key`-värden.
+- Köbaserad bakgrundsprocess.
+- Mallredigerare i admin.
+- Studsar, leveransstatus och provider-webhooks.
+- Per-organisation avsändare och språk.
+- Marknadsplatsflöden där både kund, uthyrare och plattform kan vara mottagare.
+
 ### Loggning
 
 Tabeller:
@@ -1277,6 +1372,7 @@ Tabeller:
 - `admin_tasks`
 - `notification_templates`
 - `notifications`
+- `notification_attempts`
 - `feature_flags`
 
 Syfte:
@@ -1445,6 +1541,7 @@ Organizations
  |        +--- BookingPriceSnapshots
  |        +--- Agreements --- AgreementStatusHistory
  |        +--- Payments --- PaymentStatusHistory
+ |        +--- Notifications --- NotificationAttempts
  |
  +--- Documents --- DocumentVersions
  |        |

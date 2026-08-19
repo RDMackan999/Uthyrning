@@ -377,6 +377,63 @@ Tillgänglighetslogiken ska återanvända samma överlappsregel som `BookingAvai
 
 ---
 
+# Notifieringar
+
+Version 1 använder e-post som första notifieringskanal för bokningsflödet. Notifieringar ska stödja det manuella flödet och får inte ersätta status, audit trail eller adminvy.
+
+Minsta notifieringar i Version 1:
+
+- `booking_created`: kunden får bekräftelse på att bokningsförfrågan är mottagen.
+- `booking_created`: administratör/uthyrare får besked om ny bokningsförfrågan.
+- `booking_approved`: kunden får besked om att bokningen är godkänd.
+- `booking_rejected`: kunden får besked om att bokningsförfrågan är nekad.
+- `booking_cancelled`: kunden får besked om avbokning eller annullering.
+
+Följande händelser ska kunna audit-loggas men behöver inte skicka e-post i första implementationen:
+
+- `booking_started`
+- `booking_completed`
+
+Följande notifieringar skjuts upp:
+
+- `booking_reminder`
+- `return_reminder`
+- `overdue`
+- `booking_changed`
+- SMS
+- push
+- Kivra
+- marknadsföringsutskick
+
+Kundnotifieringar ska använda e-postadressen från bokningens kundsnapshot som källa till sanning. Om en bokning saknar snapshot får fallback till kund- eller användaruppgift endast göras om det dokumenteras och inte ändrar historisk bokningsdata.
+
+Admin- och uthyrarnotifieringar ska använda organisationens notifieringsadress eller aktiva administratörer med rätt roll. Adresser får inte hårdkodas i kod, mallar eller konfiguration som committas.
+
+En notifiering får inte skapa dubbletter för samma händelse, bokning, kanal, mottagare och mall. Systemet ska kunna känna igen samma notifieringshändelse genom en idempotency-nyckel.
+
+Om e-postleverans misslyckas ska bokningen eller statusändringen inte rullas tillbaka. Felet ska registreras säkert, notifieringen ska kunna visas för administratör och ett nytt försök ska kunna göras senare.
+
+Kundmail får innehålla:
+
+- bokningsreferens
+- objektets publika namn
+- bokningsdatum
+- status
+- pris- och depositionssnapshot när dessa är relevanta
+- organisationsnamn
+- tydlig kontaktväg
+
+Kundmail får inte innehålla:
+
+- interna tekniska id:n
+- auditdata
+- interna noteringar
+- andra kunders uppgifter
+- säkerhetsinformation
+- hemligheter eller tokens
+
+---
+
 # Prissättning
 
 Version 1 använder fasta priser.

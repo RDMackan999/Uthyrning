@@ -64,6 +64,8 @@ Bekräftelse
 - Kunden vet att förfrågan är mottagen.
 - Kunden förstår att bokningen väntar på manuell granskning.
 - Administratören får en notis.
+- Kunden får senare en e-postbekräftelse baserad på bokningens kundsnapshot.
+- Administratör/uthyrare får senare notifiering via organisationens notifieringsadress eller relevant administratörsroll.
 - Kunden ser endast om datum är lediga eller ej tillgängliga, aldrig andra kunders uppgifter eller intern bokningsstatus.
 - Systemet kontrollerar tillgänglighet igen när förfrågan skickas.
 
@@ -90,6 +92,8 @@ Skapa avtal
 - Godkänd bokning reserverar objektet.
 - Nekad bokning frigör datum.
 - Statushistorik sparas.
+- Kunden får senare e-postbesked vid godkänd, nekad eller avbokad bokning.
+- Ett misslyckat e-postutskick ska inte ångra statusändringen, men ska kunna synas för administratören.
 - Administratören kan senare se varför datum är blockerade, till exempel förfrågan, godkänd bokning, aktiv bokning, manuell blockering eller service.
 
 ---

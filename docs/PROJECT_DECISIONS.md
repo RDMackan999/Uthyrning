@@ -815,6 +815,63 @@ Service/UH ska senare kunna återanvända samma availability-lager eller kompati
 
 ---
 
+# Beslut 0019
+
+## Datum
+
+2026-08-19
+
+## Status
+
+Accepted
+
+## Titel
+
+Notifieringsmodell för bokningar i Version 1
+
+## Beslut
+
+Version 1 använder e-post som första notifieringskanal. SMS, push, Kivra, marknadsföringsutskick, spårningspixlar och externa utskicksplattformar skjuts upp.
+
+Notifieringar ska skapas från domänhändelser men får inte avgöra om själva bokningshändelsen lyckas. En bokning eller statusändring ska först sparas och audit-loggas. Därefter skapas notifiering och leveransförsök. Om e-post misslyckas ska bokningen inte rullas tillbaka.
+
+Minsta händelser för Version 1:
+
+- `booking_created`: kund får bekräftelse på mottagen förfrågan och administratör/uthyrare får besked om ny förfrågan.
+- `booking_approved`: kund får besked om godkänd bokning.
+- `booking_rejected`: kund får besked om nekad förfrågan.
+- `booking_cancelled`: kund får besked om avbokning eller annullering.
+
+Händelserna `booking_started` och `booking_completed` ska audit-loggas men behöver inte skicka e-post i första notifieringsimplementationen. `booking_reminder`, `return_reminder`, `overdue` och `booking_changed` förbereds i designen men skjuts upp till senare sprint.
+
+Kundens mottagaradress ska hämtas från bokningens kundsnapshot när notifieringen gäller en specifik bokning. Historiska bokningsnotiser ska inte ändras för att en kund senare ändrar e-post i sin profil. Om snapshot saknas får kund- eller användaruppgift bara användas enligt dokumenterad fallback.
+
+Admin-/uthyrarmottagare ska hämtas från organisationsinställning eller aktiva administratörer med relevant roll. Individuella administratörsadresser får inte hårdkodas.
+
+Notifieringar ska vara idempotenta. Samma händelse, bokning, kanal, mottagare och mall ska inte skapa dubbletter. En framtida implementation bör använda en idempotency-nyckel baserad på dessa värden.
+
+Version 1 ska använda filbaserade PHP-mallar för e-postinnehåll. Databasstyrda mallar och mallredigerare kan införas senare.
+
+E-posttransport ska vara leverantörsoberoende. Development och test ska använda logg-/capture-transport eller explicit testtransport så att riktiga e-postmeddelanden inte skickas av misstag. Produktion kan senare använda SMTP eller annan provider via samma transportgränssnitt.
+
+Audit ska logga `notification_created`, `notification_sent`, `notification_failed` och `notification_retried`, men aldrig hela e-postbody, hemligheter eller känsliga headers.
+
+## Motivering
+
+E-post räcker för ett tryggt manuellt bokningsflöde i Version 1 och är enklare att kontrollera än SMS, push eller externa meddelandetjänster.
+
+Att spara bokningshändelsen före notifieringen skyddar affärsflödet från externa leveransfel. Uthyraren kan fortfarande se misslyckade notifieringar och skicka om manuellt.
+
+Bokningssnapshot som källa till kundadress ger bättre historik, särskilt när bokningar görs utan konto eller när kunden senare ändrar kontaktuppgifter.
+
+## Konsekvens
+
+Sprint 7B bör införa notifieringspersistens, transportgränssnitt, säker development-transport och de första bokningsmailen utan att bygga SMS, push, template editor eller köarbetare.
+
+Kommande kod får inte skicka e-post direkt från controller eller inline i statuslogik. Den ska gå via ett tydligt notifieringslager.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
