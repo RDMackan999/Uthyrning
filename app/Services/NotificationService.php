@@ -69,6 +69,29 @@ final class NotificationService
     }
 
     /**
+     * Build the delivery context for an existing booking notification.
+     *
+     * @return array<string, mixed>
+     */
+    public function contextForExistingNotification(Notification $notification): array
+    {
+        $data = $notification->toArray();
+        $organizationId = (int) ($data['organization_id'] ?? 0);
+        $bookingId = (int) ($data['booking_id'] ?? 0);
+
+        if ($organizationId <= 0 || $bookingId <= 0) {
+            throw new NotificationException('Notification booking context is incomplete.');
+        }
+
+        $context = $this->notificationRepository->bookingContext($organizationId, $bookingId);
+        $customerEmail = (string) ($context['customer_email_normalized'] ?? $context['customer_email'] ?? '');
+        $context['customer_email'] = $this->normalizeEmail($customerEmail);
+        $context['status_message'] = $this->statusMessage((string) ($context['status_key'] ?? ''));
+
+        return $context;
+    }
+
+    /**
      * Build a stable idempotency key for one logical notification.
      */
     public function idempotencyKey(

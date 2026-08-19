@@ -21,6 +21,11 @@ final class NotificationRepository extends BaseRepository
 {
     private const MAX_PUBLIC_ID_ATTEMPTS = 5;
 
+    /**
+     * @var list<string>
+     */
+    private const RETRYABLE_STATUS_KEYS = ['pending', 'failed'];
+
     public function __construct(
         private readonly PublicIdGenerator $publicIdGenerator = new PublicIdGenerator()
     ) {
@@ -56,6 +61,108 @@ final class NotificationRepository extends BaseRepository
         $row = $statement->fetch(PDO::FETCH_ASSOC);
 
         return $row === false ? null : new Notification($row);
+    }
+
+    /**
+     * Find one non-deleted notification by public id, optionally scoped to one organization.
+     */
+    public function findByPublicId(string $publicId, ?int $organizationId = null): ?Notification
+    {
+        $sql = 'SELECT *
+                FROM notifications
+                WHERE public_id = :public_id';
+        $parameters = ['public_id' => $publicId];
+
+        if ($organizationId !== null) {
+            $sql .= ' AND organization_id = :organization_id';
+            $parameters['organization_id'] = $organizationId;
+        }
+
+        $sql .= ' LIMIT 1';
+
+        $statement = Database::pdo()->prepare($sql);
+        $statement->execute($parameters);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : new Notification($row);
+    }
+
+    /**
+     * Return notifications with safe admin display metadata.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findAllForAdmin(?string $statusKey = null, ?string $eventKey = null, ?int $organizationId = null): array
+    {
+        $sql = $this->adminSelectSql() . '
+             WHERE 1 = 1';
+        $parameters = [];
+
+        if ($statusKey !== null) {
+            $sql .= ' AND notifications.status_key = :status_key';
+            $parameters['status_key'] = $statusKey;
+        }
+
+        if ($eventKey !== null) {
+            $sql .= ' AND notifications.event_key = :event_key';
+            $parameters['event_key'] = $eventKey;
+        }
+
+        if ($organizationId !== null) {
+            $sql .= ' AND notifications.organization_id = :organization_id';
+            $parameters['organization_id'] = $organizationId;
+        }
+
+        $sql .= ' ORDER BY notifications.created_at DESC, notifications.id DESC';
+
+        $statement = Database::pdo()->prepare($sql);
+        $statement->execute($parameters);
+
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return $rows;
+    }
+
+    /**
+     * Find one notification with safe admin display metadata.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findAdminByPublicId(string $publicId, ?int $organizationId = null): ?array
+    {
+        $sql = $this->adminSelectSql() . '
+             WHERE notifications.public_id = :public_id';
+        $parameters = ['public_id' => $publicId];
+
+        if ($organizationId !== null) {
+            $sql .= ' AND notifications.organization_id = :organization_id';
+            $parameters['organization_id'] = $organizationId;
+        }
+
+        $sql .= ' LIMIT 1';
+
+        $statement = Database::pdo()->prepare($sql);
+        $statement->execute($parameters);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Determine whether a notification can be retried without creating a new logical record.
+     */
+    public function isRetryable(Notification $notification): bool
+    {
+        $data = $notification->toArray();
+        $statusKey = (string) ($data['status_key'] ?? '');
+        $attemptsCount = (int) ($data['attempts_count'] ?? 0);
+        $maxAttempts = (int) ($data['max_attempts'] ?? 3);
+
+        return in_array($statusKey, self::RETRYABLE_STATUS_KEYS, true)
+            && $attemptsCount < $maxAttempts;
     }
 
     /**
@@ -328,6 +435,67 @@ final class NotificationRepository extends BaseRepository
             static fn (array $row): Notification => new Notification($row),
             $statement->fetchAll(PDO::FETCH_ASSOC)
         ));
+    }
+
+    /**
+     * Return supported admin filter options.
+     *
+     * @return array<string, string>
+     */
+    public static function statusOptions(): array
+    {
+        return [
+            'pending' => 'Väntar',
+            'sent' => 'Skickad',
+            'failed' => 'Misslyckad',
+            'cancelled' => 'Avbruten',
+        ];
+    }
+
+    /**
+     * Return supported Version 1 notification event filters.
+     *
+     * @return array<string, string>
+     */
+    public static function eventOptions(): array
+    {
+        return [
+            'booking_created' => 'Ny bokningsförfrågan',
+            'booking_approved' => 'Bokning godkänd',
+            'booking_rejected' => 'Bokning nekad',
+            'booking_cancelled' => 'Bokning avbokad',
+        ];
+    }
+
+    private function adminSelectSql(): string
+    {
+        return 'SELECT notifications.public_id,
+                notifications.organization_id,
+                notifications.booking_id,
+                notifications.event_key,
+                notifications.channel_key,
+                notifications.recipient_type,
+                notifications.recipient_email,
+                notifications.template_key,
+                notifications.subject,
+                notifications.status_key,
+                notifications.idempotency_key,
+                notifications.attempts_count,
+                notifications.max_attempts,
+                notifications.last_error_code,
+                notifications.last_error_summary,
+                notifications.scheduled_at,
+                notifications.sent_at,
+                notifications.failed_at,
+                notifications.created_at,
+                notifications.updated_at,
+                organizations.name AS organization_name,
+                bookings.public_id AS booking_public_id
+             FROM notifications
+             INNER JOIN organizations
+                ON organizations.id = notifications.organization_id
+             LEFT JOIN bookings
+                ON bookings.id = notifications.booking_id';
     }
 
     private function generateUniquePublicId(): string
