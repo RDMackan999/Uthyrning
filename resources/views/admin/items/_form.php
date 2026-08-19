@@ -145,6 +145,7 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
             <button class="admin-button" type="submit"><?= $escape($submitLabel) ?></button>
             <?php if ($item !== null): ?>
                 <a class="admin-button admin-button-secondary" href="/admin/items/<?= rawurlencode((string) ($item['public_id'] ?? '')) ?>/rates">Hantera priser</a>
+                <a class="admin-button admin-button-secondary" href="/admin/items/<?= rawurlencode((string) ($item['public_id'] ?? '')) ?>/availability">Kalenderblockeringar</a>
             <?php endif; ?>
         </div>
     </form>

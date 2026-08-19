@@ -348,6 +348,21 @@ Administrativ kalender kan senare skilja på:
 
 Manuell blockering ska designas som separat kalenderkälla när funktionen prioriteras. Den ska kunna användas för egen användning, transport, service, buffert och andra perioder då objektet inte ska kunna bokas. Rekommenderad nästa design är en separat Sprint 6B för manuella blockeringar innan implementation.
 
+Sprint 6B inför manuell blockering via `blocked_periods`.
+
+Version 1 använder följande blockeringstyper:
+
+- `manual`
+- `maintenance`
+- `owner_use`
+- `transport`
+
+Administratör får skapa och arkivera manuella blockeringar, men inte hårdradera dem.
+
+Överlappande manuella blockeringar av samma typ för samma objekt ska nekas.
+
+Manuell blockering över befintlig blockerande bokning ska nekas. Befintliga bokningar ska aldrig ändras, raderas eller avbokas automatiskt av en manuell blockering.
+
 Service och underhåll ska senare påverka tillgänglighet genom egna service- eller blockeringsperioder. Publik kalender ska även då bara visa att datumet inte är tillgängligt, inte varför.
 
 Publik kalender ska begränsa hur långt fram användaren kan fråga efter tillgänglighet. Version 1 ska använda högst 6 månader framåt per fråga. Obegränsade kalenderfrågor är inte tillåtna.

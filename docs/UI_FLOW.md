@@ -327,6 +327,8 @@ Vid skapa och redigera objekt väljer administratören en primär kategori.
 
 Kategorier hanteras som en enkel lista i Version 1.
 
+Administratören kan från ett objekt öppna kalenderblockeringar och skapa eller arkivera manuella perioder då objektet inte kan bokas.
+
 Framtida underkategorier och flera kategorier per objekt ska inte visas innan separat sprint.
 
 Version 1-formulär för objekt ska hållas enkelt.
@@ -477,6 +479,19 @@ Kalenderpåverkan:
 - Nekad, avbokad och slutförd bokning frigör datum för framtida bokningar.
 
 Administrativ kalender ska senare kunna visa skillnad mellan förfrågan, godkänd bokning, aktiv bokning, manuell blockering och service. Den ska aldrig bygga egna tillgänglighetsregler som avviker från backendens gemensamma tillgänglighetskontroll.
+
+---
+
+# Kalenderblockeringar
+
+Administratören kan:
+
+- visa aktiva blockeringar för ett objekt
+- skapa manuell blockering
+- ange startdatum, slutdatum, blockeringstyp och intern notering
+- arkivera en blockering
+
+Version 1 visar inte intern blockeringstyp publikt. Publik bokningssida visar endast om datum är ledigt eller ej tillgängligt.
 
 ---
 

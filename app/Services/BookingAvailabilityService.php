@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Core\BookingException;
 use App\Repositories\BookingItemRepository;
+use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\RentalItemRepository;
 use DateTimeImmutable;
 
@@ -16,6 +17,7 @@ final class BookingAvailabilityService
 {
     public function __construct(
         private readonly BookingItemRepository $bookingItemRepository = new BookingItemRepository(),
+        private readonly ItemAvailabilityBlockRepository $availabilityBlockRepository = new ItemAvailabilityBlockRepository(),
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository()
     ) {
     }
@@ -33,7 +35,7 @@ final class BookingAvailabilityService
         $this->assertValidInterval($startDate, $endDate);
         $this->rentalItemRepository->findBookableForBooking($organizationId, $rentalItemId);
 
-        return !$this->bookingItemRepository->hasBlockingOverlap(
+        return !$this->hasBlockingOverlap(
             $organizationId,
             $rentalItemId,
             $startDate,
@@ -75,6 +77,55 @@ final class BookingAvailabilityService
             $startDate,
             $endDate,
             $excludeBookingId
+        );
+    }
+
+    /**
+     * Check whether booking statuses or manual blocks reserve this interval.
+     */
+    public function hasBlockingOverlap(
+        int $organizationId,
+        int $rentalItemId,
+        string $startDate,
+        string $endDate,
+        ?int $excludeBookingId = null
+    ): bool {
+        $this->assertValidInterval($startDate, $endDate);
+
+        if ($this->bookingItemRepository->hasBlockingOverlap(
+            $organizationId,
+            $rentalItemId,
+            $startDate,
+            $endDate,
+            $excludeBookingId
+        )) {
+            return true;
+        }
+
+        return $this->availabilityBlockRepository->hasBlockingOverlap(
+            $organizationId,
+            $rentalItemId,
+            $startDate,
+            $endDate
+        );
+    }
+
+    /**
+     * Check only manual availability blocks for callers that already validated item scope.
+     */
+    public function hasBlockingManualBlocks(
+        int $organizationId,
+        int $rentalItemId,
+        string $startDate,
+        string $endDate
+    ): bool {
+        $this->assertValidInterval($startDate, $endDate);
+
+        return $this->availabilityBlockRepository->hasBlockingOverlap(
+            $organizationId,
+            $rentalItemId,
+            $startDate,
+            $endDate
         );
     }
 

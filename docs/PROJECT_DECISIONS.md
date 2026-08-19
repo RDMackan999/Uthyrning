@@ -771,6 +771,50 @@ Sprint 6B bör besluta om manuell blockering ska implementeras direkt eller vän
 
 ---
 
+# Beslut 0018
+
+## Datum
+
+2026-08-19
+
+## Status
+
+Accepted
+
+## Titel
+
+Manuell kalenderblockering i Version 1
+
+## Beslut
+
+Sprint 6B implementerar manuell kalenderblockering med tabellen `blocked_periods`.
+
+Tabellen använder explicit `organization_id`, `rental_item_id`, inkluderande `start_date` och `end_date`, `reason_code`, intern notering, skapande administratör samt `deleted_at` för soft delete.
+
+Version 1 tillåter blockeringstyperna `manual`, `maintenance`, `owner_use` och `transport`. Dessa lagras som vanliga textnycklar, inte ENUM.
+
+Publik kalender ska aldrig visa `reason_code`, intern notering, administratör, bokningsstatus eller kunddata. All blockerad tid visas publikt som ej tillgänglig.
+
+Överlappande manuella blockeringar av samma typ för samma objekt nekas. Manuell blockering över befintlig blockerande bokning nekas. Befintliga bokningar ändras inte automatiskt.
+
+## Motivering
+
+`blocked_periods` följer Sprint 6A:s kalenderdesign och håller manuell blockering separat från bokningar, utan att skapa en parallell tillgänglighetssanning.
+
+Minimala blockeringstyper räcker för Version 1 och ger samtidigt plats för framtida service- och transportflöden.
+
+Soft delete bevarar historik och gör arkivering reversibelt på datanivå utan permanent radering.
+
+## Konsekvens
+
+`BookingAvailabilityService` ska kontrollera både blockerande bokningar och aktiva `blocked_periods`.
+
+Admin kan skapa och arkivera blockeringar, men publik kalender får bara använda anonymiserat tillgänglighetsläge.
+
+Service/UH ska senare kunna återanvända samma availability-lager eller kompatibel mekanism utan egen parallell kalendermodell.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

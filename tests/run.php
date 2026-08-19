@@ -18,16 +18,19 @@ use App\Http\RentalItemFormRequest;
 use App\Models\Booking;
 use App\Models\BookingItem;
 use App\Models\Category;
+use App\Models\ItemAvailabilityBlock;
 use App\Models\ItemRate;
 use App\Models\RentalItem;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
+use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
 use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
 use App\Services\BookingAvailabilityService;
+use App\Services\AvailabilityCalendarService;
 use App\Services\BookingPricingService;
 use App\Services\BookingService;
 use App\Services\BookingStatusService;
@@ -426,15 +429,48 @@ function collectionContainsRateType(Collection $collection, string $rateType): b
     return false;
 }
 
+function createBookableRentalItem(
+    int $organizationId,
+    int $categoryId,
+    string $slug,
+    string $name,
+    RentalItemRepository $rentalItemRepository,
+    ItemRateRepository $itemRateRepository
+): RentalItem {
+    $item = $rentalItemRepository->create([
+        'organization_id' => $organizationId,
+        'primary_category_id' => $categoryId,
+        'slug' => $slug,
+        'name' => $name,
+        'publication_status_key' => 'published',
+        'is_active' => true,
+        'is_rentable' => true,
+        'deposit_amount' => '250.00',
+    ]);
+
+    $itemRateRepository->create([
+        'organization_id' => $organizationId,
+        'rental_item_id' => (int) $item->toArray()['id'],
+        'rate_type' => 'daily',
+        'amount' => '250.00',
+        'currency' => 'SEK',
+        'is_active' => true,
+    ]);
+
+    return $item;
+}
+
 $runner = new TestRunner();
 $migrationRunner = new MigrationRunner($basePath);
 $seederRunner = new SeederRunner($basePath);
 $repository = new CategoryRepository();
 $rentalItemRepository = new RentalItemRepository();
 $itemRateRepository = new ItemRateRepository();
+$availabilityBlockRepository = new ItemAvailabilityBlockRepository();
 $bookingRepository = new BookingRepository();
 $bookingItemRepository = new BookingItemRepository();
 $bookingAvailabilityService = new BookingAvailabilityService();
+$availabilityCalendarService = new AvailabilityCalendarService();
 $bookingPricingService = new BookingPricingService();
 $bookingService = new BookingService();
 $bookingStatusService = new BookingStatusService();
@@ -467,6 +503,36 @@ $runner->test('migrations create booking foundation tables', static function () 
     ] as $table) {
         assertTrue(tableExists($table), $table . ' table should exist.');
     }
+});
+
+$runner->test('migrations create manual availability block foundation table', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    assertTrue(tableExists('blocked_periods'), 'blocked_periods table should exist.');
+
+    $columns = columnsFor('blocked_periods');
+    foreach ([
+        'id',
+        'organization_id',
+        'rental_item_id',
+        'start_date',
+        'end_date',
+        'reason_code',
+        'internal_note',
+        'created_by_user_id',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, $columns, true), $column . ' should exist on blocked_periods.');
+    }
+
+    assertSame('date', columnDataType('blocked_periods', 'start_date'), 'blocked_periods.start_date should be DATE.');
+    assertSame('date', columnDataType('blocked_periods', 'end_date'), 'blocked_periods.end_date should be DATE.');
+    assertTrue(indexExists('blocked_periods', 'idx_blocked_periods_item_dates'), 'blocked periods item date index missing.');
+    assertTrue(foreignKeyExists('blocked_periods', 'organizations'), 'blocked_periods should reference organizations.');
+    assertTrue(foreignKeyExists('blocked_periods', 'rental_items'), 'blocked_periods should reference rental_items.');
+    assertTrue(foreignKeyExists('blocked_periods', 'users'), 'blocked_periods should reference users.');
 });
 
 $runner->test('item_categories has expected columns only for Sprint 3B', static function (): void {
@@ -3120,6 +3186,475 @@ $runner->test('admin booking management enforces access, scoped display, transit
             . rawurlencode((string) ($publicItemData['slug'] ?? ''))
             . '/book';
         assertSame(200, $router->dispatch(new Request('GET', $publicFormPath))->statusCode(), 'Public booking form should continue to work.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('manual availability blocks affect central booking availability', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $availabilityBlockRepository,
+    $bookingAvailabilityService,
+    $bookingService,
+    $bookingStatusService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationOneId = createOrganization('Availability One ' . $suffix, 'availability-one-' . $suffix);
+        $organizationTwoId = createOrganization('Availability Two ' . $suffix, 'availability-two-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for availability block tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+
+        $item = createBookableRentalItem(
+            $organizationOneId,
+            $categoryId,
+            'availability-item-' . $suffix,
+            'Availability Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $otherTenantItem = createBookableRentalItem(
+            $organizationTwoId,
+            $categoryId,
+            'availability-other-' . $suffix,
+            'Availability Other ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemId = (int) $item->toArray()['id'];
+
+        assertThrows(
+            static fn () => $availabilityBlockRepository->create([
+                'organization_id' => $organizationOneId,
+                'rental_item_id' => (int) $otherTenantItem->toArray()['id'],
+                'start_date' => '2030-01-10',
+                'end_date' => '2030-01-10',
+                'reason_code' => 'manual',
+            ]),
+            ModelException::class,
+            'Cross-tenant availability block should be rejected.'
+        );
+
+        assertThrows(
+            static fn () => $availabilityBlockRepository->create([
+                'organization_id' => $organizationOneId,
+                'rental_item_id' => $itemId,
+                'start_date' => '2030-01-12',
+                'end_date' => '2030-01-10',
+                'reason_code' => 'manual',
+            ]),
+            ModelException::class,
+            'Availability block start after end should be rejected.'
+        );
+
+        $block = $availabilityBlockRepository->create([
+            'organization_id' => $organizationOneId,
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-01-10',
+            'end_date' => '2030-01-10',
+            'reason_code' => 'owner_use',
+            'internal_note' => 'Internal availability note',
+        ]);
+        assertTrue($block instanceof ItemAvailabilityBlock, 'Availability block should be created.');
+        assertSame(1, $availabilityBlockRepository->findForItem($organizationOneId, $itemId)->count(), 'Block should be listed for item.');
+        assertSame(1, $availabilityBlockRepository->findBlockingForItemAndRange($organizationOneId, $itemId, '2030-01-10', '2030-01-10')->count(), 'Same-day block should use inclusive overlap.');
+        assertFalse($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-10', '2030-01-10'), 'Manual block should make item unavailable.');
+
+        assertThrows(
+            static fn () => $bookingService->createRequest([
+                'rental_item_id' => $itemId,
+                'start_date' => '2030-01-10',
+                'end_date' => '2030-01-10',
+                'customer_name' => 'Blocked Guest',
+                'customer_email' => 'blocked@example.com',
+                'customer_phone' => '070-000 00 00',
+            ]),
+            BookingException::class,
+            'Booking request should be rejected when manual block overlaps.'
+        );
+
+        assertTrue($availabilityBlockRepository->delete((int) $block->toArray()['id'], $organizationOneId), 'Manual block should soft delete.');
+        assertTrue($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-10', '2030-01-10'), 'Soft-deleted block should not make item unavailable.');
+
+        $requestBooking = $bookingService->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-01-11',
+            'end_date' => '2030-01-11',
+            'customer_name' => 'Request Guest',
+            'customer_email' => 'request@example.com',
+            'customer_phone' => '070-111 11 11',
+        ]);
+        assertFalse($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-11', '2030-01-11'), 'Existing request should continue to block availability.');
+
+        $rejected = $bookingStatusService->transition(
+            $organizationOneId,
+            (int) $requestBooking->toArray()['id'],
+            'rejected'
+        );
+        assertSame('rejected', $rejected->toArray()['status_key'] ?? null, 'Booking should transition to rejected.');
+        assertTrue($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-11', '2030-01-11'), 'Rejected booking should not block availability.');
+
+        $approvedBooking = $bookingService->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-01-12',
+            'end_date' => '2030-01-12',
+            'customer_name' => 'Approved Guest',
+            'customer_email' => 'approved@example.com',
+            'customer_phone' => '070-222 22 22',
+        ]);
+        $bookingStatusService->transition($organizationOneId, (int) $approvedBooking->toArray()['id'], 'approved');
+        assertFalse($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-12', '2030-01-12'), 'Approved booking should continue to block availability.');
+
+        $activeBooking = $bookingService->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-01-13',
+            'end_date' => '2030-01-13',
+            'customer_name' => 'Active Guest',
+            'customer_email' => 'active@example.com',
+            'customer_phone' => '070-333 33 33',
+        ]);
+        $bookingStatusService->transition($organizationOneId, (int) $activeBooking->toArray()['id'], 'approved');
+        $bookingStatusService->transition($organizationOneId, (int) $activeBooking->toArray()['id'], 'active');
+        assertFalse($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-13', '2030-01-13'), 'Active booking should continue to block availability.');
+
+        $cancelledBooking = $bookingService->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-01-14',
+            'end_date' => '2030-01-14',
+            'customer_name' => 'Cancelled Guest',
+            'customer_email' => 'cancelled@example.com',
+            'customer_phone' => '070-444 44 44',
+        ]);
+        $bookingStatusService->transition($organizationOneId, (int) $cancelledBooking->toArray()['id'], 'cancelled');
+        assertTrue($bookingAvailabilityService->isAvailable($organizationOneId, $itemId, '2030-01-14', '2030-01-14'), 'Cancelled booking should not block availability.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('public availability calendar exposes only safe day states', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $availabilityBlockRepository,
+    $availabilityCalendarService,
+    $basePath
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Calendar Public ' . $suffix, 'calendar-public-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for calendar tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'calendar-public-item-' . $suffix,
+            'Calendar Public Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemData = $item->toArray();
+        $rentalItemId = (int) $itemData['id'];
+        $today = new DateTimeImmutable('today');
+        $availableDate = $today->modify('+9 days')->format('Y-m-d');
+        $blockedDate = $today->modify('+10 days')->format('Y-m-d');
+        $rangeEnd = $today->modify('+11 days')->format('Y-m-d');
+
+        $availabilityBlockRepository->create([
+            'organization_id' => $organizationId,
+            'rental_item_id' => $rentalItemId,
+            'start_date' => $blockedDate,
+            'end_date' => $blockedDate,
+            'reason_code' => 'maintenance',
+            'internal_note' => 'Private service reason',
+        ]);
+
+        $calendar = $availabilityCalendarService->publicRange(
+            $organizationId,
+            $rentalItemId,
+            $availableDate,
+            $rangeEnd,
+            $availableDate,
+            $rangeEnd
+        );
+
+        assertSame($availableDate, $calendar['from_date'] ?? null, 'Calendar should expose requested from date.');
+        assertSame($rangeEnd, $calendar['to_date'] ?? null, 'Calendar should expose requested to date.');
+        assertTrue(is_array($calendar['days'] ?? null), 'Calendar days should be present.');
+
+        $states = [];
+        foreach ($calendar['days'] as $day) {
+            assertFalse(array_key_exists('reason_code', $day), 'Public calendar day should not expose block reason.');
+            assertFalse(array_key_exists('booking_status', $day), 'Public calendar day should not expose booking status.');
+            assertFalse(array_key_exists('customer', $day), 'Public calendar day should not expose customer data.');
+            $states[$day['date']] = $day['state'];
+        }
+
+        assertSame('available', $states[$availableDate] ?? null, 'Available date should be public-safe available.');
+        assertSame('unavailable', $states[$blockedDate] ?? null, 'Blocked date should be public-safe unavailable.');
+
+        assertThrows(
+            static fn () => $availabilityCalendarService->publicRange(
+                $organizationId,
+                $rentalItemId,
+                $today->format('Y-m-d'),
+                $today->modify('+7 months')->format('Y-m-d')
+            ),
+            BookingException::class,
+            'Public calendar range beyond six months should be rejected.'
+        );
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+        $bookPath = '/items/'
+            . rawurlencode((string) ($itemData['public_id'] ?? ''))
+            . '/'
+            . rawurlencode((string) ($itemData['slug'] ?? ''))
+            . '/book';
+        $response = $router->dispatch(new Request('GET', $bookPath));
+        assertSame(200, $response->statusCode(), 'Public booking form should render calendar foundation.');
+        assertTrue(str_contains($response->content(), 'Tillg&auml;nglighet'), 'Public booking form should show availability calendar.');
+        assertTrue(str_contains($response->content(), 'aria-disabled'), 'Public calendar should include accessibility state.');
+        assertFalse(str_contains($response->content(), 'Private service reason'), 'Public calendar should not expose internal block reason.');
+        assertFalse(str_contains($response->content(), 'maintenance'), 'Public calendar should not expose internal block type.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('admin availability block flow enforces auth, CSRF, scope, audit and archive', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $availabilityBlockRepository,
+    $bookingService,
+    $bookingAvailabilityService,
+    $basePath
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Admin Availability ' . $suffix, 'admin-availability-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for admin availability tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'admin-availability-item-' . $suffix,
+            'Admin Availability Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemData = $item->toArray();
+        $itemPublicId = (string) ($itemData['public_id'] ?? '');
+        $itemId = (int) ($itemData['id'] ?? 0);
+        $basePathForItem = '/admin/items/' . rawurlencode($itemPublicId) . '/availability';
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $adminSession = createAuthenticatedTestUser(true);
+        $userSession = createAuthenticatedTestUser(false);
+        $adminToken = $adminSession['token'];
+        $adminUserId = $adminSession['user_id'];
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+
+        assertSame(302, $router->dispatch(new Request('GET', $basePathForItem))->statusCode(), 'Unauthenticated users should not list availability blocks.');
+        assertSame(403, $router->dispatch(new Request(
+            'GET',
+            $basePathForItem,
+            [],
+            [],
+            ['uthyrning_session' => $userSession['token']],
+            $server
+        ))->statusCode(), 'Non-admin users should not list availability blocks.');
+
+        $adminList = $router->dispatch(new Request(
+            'GET',
+            $basePathForItem,
+            [],
+            [],
+            ['uthyrning_session' => $adminToken],
+            $server
+        ));
+        assertSame(200, $adminList->statusCode(), 'Admin should list availability blocks.');
+        assertTrue(str_contains($adminList->content(), 'Ny blockering'), 'Admin list should link to create block.');
+
+        $createForm = $router->dispatch(new Request(
+            'GET',
+            $basePathForItem . '/create',
+            [],
+            [],
+            ['uthyrning_session' => $adminToken],
+            $server
+        ));
+        assertSame(200, $createForm->statusCode(), 'Admin should open create form.');
+        assertTrue(str_contains($createForm->content(), 'csrf_token'), 'Create form should include CSRF token.');
+
+        $validPost = [
+            'start_date' => '2030-02-10',
+            'end_date' => '2030-02-10',
+            'reason_code' => 'owner_use',
+            'internal_note' => 'Owner needs the item.',
+        ];
+        $missingCsrf = $router->dispatch(new Request(
+            'POST',
+            $basePathForItem,
+            [],
+            $validPost,
+            ['uthyrning_session' => $adminToken],
+            $server
+        ));
+        assertSame(200, $missingCsrf->statusCode(), 'Admin create without CSRF should render safe error.');
+        assertSame(0, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Missing CSRF should not create block.');
+
+        $invalidRange = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            $basePathForItem,
+            $adminToken,
+            array_merge($validPost, ['start_date' => '2030-02-12', 'end_date' => '2030-02-10'])
+        ));
+        assertSame(200, $invalidRange->statusCode(), 'Admin create should reject start after end.');
+        assertSame(0, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Invalid range should not create block.');
+
+        $bookingService->createRequest([
+            'rental_item_id' => $itemId,
+            'start_date' => '2030-02-11',
+            'end_date' => '2030-02-11',
+            'customer_name' => 'Existing Booking',
+            'customer_email' => 'existing-booking@example.com',
+            'customer_phone' => '070-777 77 77',
+        ]);
+        $overBooking = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            $basePathForItem,
+            $adminToken,
+            array_merge($validPost, ['start_date' => '2030-02-11', 'end_date' => '2030-02-11'])
+        ));
+        assertSame(200, $overBooking->statusCode(), 'Admin create should reject block over existing booking.');
+        assertSame(0, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Overlapping booking should not create block.');
+
+        $createResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            $basePathForItem,
+            $adminToken,
+            $validPost
+        ));
+        assertSame(302, $createResponse->statusCode(), 'Admin create should redirect after success.');
+        assertSame(1, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Admin create should store block.');
+        assertFalse($bookingAvailabilityService->isAvailable($organizationId, $itemId, '2030-02-10', '2030-02-10'), 'Admin block should affect booking availability.');
+
+        $createdBlock = $availabilityBlockRepository->findBlockingForItemAndRange(
+            $organizationId,
+            $itemId,
+            '2030-02-10',
+            '2030-02-10'
+        )->toArray()[0] ?? null;
+        assertTrue(is_array($createdBlock), 'Created availability block should be retrievable.');
+        $createdBlockId = (int) ($createdBlock['id'] ?? 0);
+
+        $auditStatement = $pdo->prepare(
+            'SELECT context_json
+             FROM audit_logs
+             WHERE event_name = :event_name
+                AND actor_user_id = :actor_user_id
+                AND subject_type = :subject_type
+                AND subject_id = :subject_id
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $auditStatement->execute([
+            'event_name' => 'availability_block_created',
+            'actor_user_id' => $adminUserId,
+            'subject_type' => 'blocked_period',
+            'subject_id' => $createdBlockId,
+        ]);
+        $createdAuditContext = (string) $auditStatement->fetchColumn();
+        assertTrue(str_contains($createdAuditContext, 'reason_code'), 'Create audit should include safe reason code.');
+        assertFalse(str_contains($createdAuditContext, 'Owner needs the item.'), 'Create audit should not include internal note.');
+
+        $duplicateResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            $basePathForItem,
+            $adminToken,
+            array_merge($validPost, ['internal_note' => 'Duplicate'])
+        ));
+        assertSame(200, $duplicateResponse->statusCode(), 'Duplicate overlapping block type should render safe error.');
+        assertSame(1, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Duplicate overlapping block should not be created.');
+
+        $missingArchiveCsrf = $router->dispatch(new Request(
+            'POST',
+            $basePathForItem . '/' . $createdBlockId . '/archive',
+            [],
+            [],
+            ['uthyrning_session' => $adminToken],
+            $server
+        ));
+        assertSame(302, $missingArchiveCsrf->statusCode(), 'Archive without CSRF should redirect safely.');
+        assertFalse($bookingAvailabilityService->isAvailable($organizationId, $itemId, '2030-02-10', '2030-02-10'), 'Missing archive CSRF should keep block active.');
+
+        $archiveResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            $basePathForItem . '/' . $createdBlockId . '/archive',
+            $adminToken
+        ));
+        assertSame(302, $archiveResponse->statusCode(), 'Archive should redirect after success.');
+        assertSame(0, $availabilityBlockRepository->findForItem($organizationId, $itemId)->count(), 'Archived block should disappear from active list.');
+        assertTrue($bookingAvailabilityService->isAvailable($organizationId, $itemId, '2030-02-10', '2030-02-10'), 'Archived block should no longer affect booking availability.');
+
+        $auditStatement->execute([
+            'event_name' => 'availability_block_archived',
+            'actor_user_id' => $adminUserId,
+            'subject_type' => 'blocked_period',
+            'subject_id' => $createdBlockId,
+        ]);
+        $archivedAuditContext = (string) $auditStatement->fetchColumn();
+        assertTrue(str_contains($archivedAuditContext, 'reason_code'), 'Archive audit should include safe reason code.');
+        assertFalse(str_contains($archivedAuditContext, 'Owner needs the item.'), 'Archive audit should not include internal note.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

@@ -1042,7 +1042,29 @@ Relationer i framtida utbyggnad:
 
 Manuella blockeringar:
 
-Version 1 behöver troligen manuell blockering för egen användning, transport, buffert och planerad service, men detta ska inte byggas i Sprint 6A. Om funktionen prioriteras rekommenderas en separat Sprint 6B som designar och implementerar `blocked_periods` eller motsvarande tabell.
+Sprint 6B implementerar manuella blockeringar med tabellen `blocked_periods`.
+
+Kolumner i Version 1:
+
+- `id`
+- `organization_id`
+- `rental_item_id`
+- `start_date`
+- `end_date`
+- `reason_code`
+- `internal_note`
+- `created_by_user_id`
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+`start_date` och `end_date` använder `DATE` och följer samma inkluderande intervallregel som bokningar.
+
+`reason_code` använder inte ENUM. Version 1 tillåter `manual`, `maintenance`, `owner_use` och `transport`.
+
+`public_reason` skapas inte i Version 1 eftersom publik kalender inte ska visa intern blockeringsorsak.
+
+Överlappande manuella blockeringar av samma typ för samma objekt ska nekas i applikationslagret. Manuell blockering över befintlig blockerande bokning ska också nekas. Befintliga bokningar ändras inte automatiskt.
 
 Service och underhåll:
 
