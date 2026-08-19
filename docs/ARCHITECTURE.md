@@ -143,6 +143,21 @@ Sprint 1G gör HTTP-svaren tydligare utan att införa affärslogik:
 
 Routern fångar endast `HttpException` och konverterar dessa till enkla HTTP-responser. Oväntade tekniska fel ska fortsatt hanteras av projektets felhantering.
 
+### Notifieringslager
+
+Notifieringar ska senare byggas som ett separat applikationslager mellan domänhändelser och transport.
+
+Rekommenderad struktur när implementationen påbörjas:
+
+- `NotificationService` tar emot domänhändelser och skapar notifieringar.
+- `NotificationMessage` beskriver mottagare, ämne, mall och kontext.
+- `NotificationRepository` sparar notifieringar och leveransstatus.
+- `EmailTransport` eller motsvarande gränssnitt skickar eller fångar e-post.
+
+Controllers och bokningsstatuslogik ska inte skicka e-post direkt. De ska anropa domän- eller applikationsservice som först sparar bokningshändelsen och därefter skapar notifiering.
+
+Development och test ska använda en säker testtransport eller mail-capture. Riktiga SMTP-uppgifter får inte finnas i repo.
+
 ### Tekniska routes
 
 `routes/web.php` innehåller endast tekniska routes:

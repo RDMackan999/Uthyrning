@@ -286,6 +286,26 @@ Logga aldrig:
 - sessions-id
 - personnummer
 - fullständiga betaluppgifter
+- fullständiga e-postmeddelanden
+
+---
+
+# E-post och notifieringar
+
+Notifieringar ska följa samma säkerhetsprinciper som övrig backend.
+
+Krav:
+
+- Validera mottagaradresser innan leveransförsök.
+- Förhindra header injection genom att neka radbrytningar i headerfält som mottagare, avsändare och ämne.
+- HTML-escapa all användarstyrd data i e-postmallar.
+- Logga aldrig hela e-postbody, lösenord, tokens, reset-länkar eller interna säkerhetsdetaljer.
+- Logga endast säkra sammanfattningar av leveransfel, till exempel felkod och kort feltyp.
+- Development och test ska inte skicka riktiga e-postmeddelanden av misstag.
+- SMTP-uppgifter och provider-nycklar får aldrig committas.
+- Extern e-postprovider ska granskas ur GDPR- och personuppgiftsperspektiv innan produktion.
+
+Notifieringar får innehålla nödvändig bokningsinformation men ska inte exponera interna id:n, interna noteringar, auditdata eller andra kunders uppgifter.
 
 ---
 
