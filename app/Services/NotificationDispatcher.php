@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Contracts\EmailTransportInterface;
-use App\Core\Config;
 use App\Core\NotificationException;
 use App\Models\Notification;
 use App\Repositories\NotificationAttemptRepository;
 use App\Repositories\NotificationRepository;
-use App\Services\Email\DevelopmentEmailTransport;
+use App\Services\Email\EmailTransportFactory;
 use App\Services\Email\EmailMessage;
 use Throwable;
 
@@ -25,6 +24,7 @@ final class NotificationDispatcher
         private readonly NotificationTemplateService $templateService = new NotificationTemplateService(),
         private readonly AuditService $auditService = new AuditService(),
         private readonly ?EmailTransportInterface $transport = null,
+        private readonly EmailTransportFactory $transportFactory = new EmailTransportFactory(),
     ) {
     }
 
@@ -58,6 +58,14 @@ final class NotificationDispatcher
                 $rendered['text']
             );
             $result = $this->emailTransport()->send($message);
+        } catch (NotificationException $exception) {
+            return $this->recordFailure(
+                $notificationId,
+                $exception->safeErrorCode(),
+                'Email delivery failed.',
+                $attemptsCount,
+                $maxAttempts
+            );
         } catch (Throwable $exception) {
             return $this->recordFailure($notificationId, 'delivery_exception', $exception::class, $attemptsCount, $maxAttempts);
         }
@@ -131,18 +139,12 @@ final class NotificationDispatcher
             return $this->transport;
         }
 
-        $transportKey = $this->transportKey();
-
-        if (!in_array($transportKey, ['development', 'test'], true)) {
-            throw new NotificationException('Configured email transport is not implemented.');
-        }
-
-        return new DevelopmentEmailTransport((bool) Config::get('notifications.development_simulate_failure', false));
+        return $this->transportFactory->make();
     }
 
     private function transportKey(): string
     {
-        return strtolower(trim((string) Config::get('notifications.email_transport', 'development'))) ?: 'development';
+        return $this->transportFactory->transportKey();
     }
 
     private function nullableInt(mixed $value): ?int
