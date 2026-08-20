@@ -25,7 +25,8 @@ final class BookingService
         private readonly BookingAvailabilityService $availabilityService = new BookingAvailabilityService(),
         private readonly BookingPricingService $pricingService = new BookingPricingService(),
         private readonly AuditService $auditService = new AuditService(),
-        private readonly NotificationService $notificationService = new NotificationService()
+        private readonly NotificationService $notificationService = new NotificationService(),
+        private readonly CustomerMatchingService $customerMatchingService = new CustomerMatchingService()
     ) {
     }
 
@@ -70,11 +71,28 @@ final class BookingService
 
             $this->availabilityService->assertAvailable($organizationId, $rentalItemId, $startDate, $endDate);
             $priceSnapshot = $this->pricingService->calculateDailySnapshot($organizationId, $item, $startDate, $endDate);
+            $companyId = $this->nullableInt($data['company_id'] ?? null);
+            $companyName = $this->nullableString($data['company_name'] ?? null);
+            $customerId = $this->nullableInt($data['customer_id'] ?? null);
+
+            if ($customerId === null) {
+                $customer = $this->customerMatchingService->resolveForGuestBooking(
+                    $organizationId,
+                    $customerName,
+                    $customerEmail,
+                    $customerPhone,
+                    $companyId,
+                    $companyName
+                );
+                $customerData = $customer->toArray();
+                $customerId = (int) ($customerData['id'] ?? 0);
+                $companyId = $this->nullableInt($customerData['company_id'] ?? null) ?? $companyId;
+            }
 
             $booking = $this->bookingRepository->create([
                 'organization_id' => $organizationId,
-                'customer_id' => $this->nullableInt($data['customer_id'] ?? null),
-                'company_id' => $this->nullableInt($data['company_id'] ?? null),
+                'customer_id' => $customerId,
+                'company_id' => $companyId,
                 'status_key' => 'request',
                 'start_date' => $startDate,
                 'end_date' => $endDate,
@@ -87,7 +105,7 @@ final class BookingService
                 'customer_name' => $customerName,
                 'customer_email' => $customerEmail,
                 'customer_phone' => $customerPhone,
-                'company_name' => $this->nullableString($data['company_name'] ?? null),
+                'company_name' => $companyName,
                 'changed_by_user_id' => $actorUserId,
             ]);
             $bookingData = $booking->toArray();

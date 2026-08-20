@@ -17,6 +17,7 @@ use App\Repositories\RentalItemRepository;
 use App\Services\AvailabilityCalendarService;
 use App\Services\BookingPricingService;
 use App\Services\BookingService;
+use App\Services\CustomerMatchingService;
 use Throwable;
 
 /**
@@ -89,9 +90,11 @@ final class PublicBookingController extends BaseController
                 'company_name' => $validated['data']['company_name'],
                 'customer_comment' => $validated['data']['customer_comment'],
             ]);
-        } catch (BookingException) {
+        } catch (BookingException $exception) {
             return $this->renderForm($request, $item, $validated['data'], [
-                'form' => self::UNAVAILABLE_MESSAGE,
+                'form' => $exception->getCode() === CustomerMatchingService::BLOCKED_CUSTOMER_ERROR_CODE
+                    ? self::GENERIC_ERROR_MESSAGE
+                    : self::UNAVAILABLE_MESSAGE,
             ]);
         } catch (Throwable) {
             return $this->renderForm($request, $item, $validated['data'], [

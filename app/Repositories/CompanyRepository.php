@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Core\BaseRepository;
+use App\Core\Collection;
 use App\Core\Database;
 use App\Core\ModelException;
 use App\Models\Company;
@@ -36,6 +37,31 @@ final class CompanyRepository extends BaseRepository
         }
 
         return new Company($row);
+    }
+
+    /**
+     * Find active companies for one organization.
+     *
+     * @return Collection<Company>
+     */
+    public function findActiveForOrganization(int $organizationId): Collection
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT * FROM companies
+             WHERE organization_id = :organization_id
+                AND status_key = :status_key
+                AND deleted_at IS NULL
+             ORDER BY name ASC, id ASC'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'status_key' => 'active',
+        ]);
+
+        return new Collection(array_map(
+            static fn (array $row): Company => new Company($row),
+            $statement->fetchAll(PDO::FETCH_ASSOC)
+        ));
     }
 
     /**

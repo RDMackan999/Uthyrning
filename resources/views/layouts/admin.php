@@ -267,7 +267,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
                 <a href="/admin/items">Objekt och priser</a>
                 <a href="/admin/bookings">Bokningar</a>
                 <a href="/admin/notifications">Notifieringar</a>
-                <span aria-disabled="true">Kunder</span>
+                <a href="/admin/customers">Kunder</a>
                 <span aria-disabled="true">Service</span>
                 <span aria-disabled="true">Inställningar</span>
             </nav>
