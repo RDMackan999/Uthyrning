@@ -990,6 +990,64 @@ Audit-loggar bör kunna bära både `actor_user_id`, `organization_id`, resursty
 
 ---
 
+# Beslut 0022
+
+## Datum
+
+2026-08-20
+
+## Status
+
+Accepted
+
+## Titel
+
+Rental fulfillment för Version 1
+
+## Beslut
+
+Version 1 ska genomföra uthyrning genom befintliga bokningsstatusar `approved`, `active` och `completed`.
+
+`approved` betyder att bokningen är godkänd men objektet inte är utlämnat.
+
+`active` betyder att objektet är utlämnat och uthyrningen pågår.
+
+`completed` betyder att objektet är återlämnat och uthyrningen är avslutad.
+
+Nya booking-statusar införs inte för utlämning eller återlämning i Version 1.
+
+Fulfillment ska modelleras separat från bokningens planerade data genom en bokningsnära modell med `rental_fulfillments` och `rental_fulfillment_items` när implementationen byggs.
+
+`bookings.start_date` och `bookings.end_date` fortsätter vara planerade kalenderdatum. Faktisk utlämning och återlämning sparas som separata tidpunkter i fulfillment.
+
+Skick vid utlämning och återlämning ska sparas som historiska snapshots per booking item.
+
+Deposition hanteras endast som manuell affärsdata i fulfillment. Ingen betalningsmotor, Swish eller Fortnox ingår.
+
+Version 1 använder ingen digital signering. Admin markerar utlämning och sparar kvittens-/fulfillmentdata. BankID-signering, PDF-avtal och externa dokumentflöden skjuts upp.
+
+Tidig återlämning får slutföra bokningen och frigör då återstående planerade dagar enligt befintliga availability-regler. Sen återlämning identifieras men ger ingen automatisk avgift i Version 1.
+
+Fulfillment ska följa befintlig organization-scoped authorization via bokningens `organization_id`.
+
+## Motivering
+
+Separat fulfillment-data håller planerad bokning, faktisk genomförandehistorik och item-specifika skick-snapshots isär utan att skapa en parallell bokningsmodell.
+
+Modellen är enkel nog för Version 1 men förbereder flera booking items, framtida skadeflöde, avtal, deposition, service och marknadsplats.
+
+Att inte införa nya statusar minskar komplexitet och bevarar befintlig availability-modell.
+
+## Konsekvens
+
+Sprint 9B bör implementera migration, modeller, repositories, `RentalFulfillmentService`, handover, return, condition snapshots, statusintegration, audit och tester enligt `docs/DATABASE_DESIGN.md`.
+
+Minimal admin-UI bör tas i Sprint 9C om Sprint 9B blir för stor.
+
+PDF, digital signering, BankID, Swish, Fortnox, automatisk förseningsavgift, skadeärenden, skadebilder och serviceorder kräver separata sprintar.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

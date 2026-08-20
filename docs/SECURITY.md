@@ -374,6 +374,18 @@ Regler:
 - Personnummer, kreditinformation och marknadsföringssamtycke får inte läggas till utan separat dokumenterat behov.
 - Blockerade eller arkiverade kunder ska bevara nödvändig historik, men persondata ska kunna anonymiseras enligt framtida retentionregler.
 
+## Fulfillment-data
+
+Utlämning och återlämning ska följa dataminimering.
+
+Regler:
+
+- Fulfillment records ska återanvända booking customer snapshot i stället för att duplicera full kundprofil.
+- Interna condition notes, damage notes och avvikelsekommentarer får inte visas publikt utan separat beslut.
+- Deposition ska lagras som nödvändig affärsdata, inte som full betalningsinformation.
+- Audit för utlämning och återlämning ska logga aktör, organisation, bokning och resultat, men inte hemligheter, sessionsdata eller onödig PII.
+- Cross-tenant-åtkomst till fulfillment ska skyddas via bokningens `organization_id`.
+
 ---
 
 # Anonymisering

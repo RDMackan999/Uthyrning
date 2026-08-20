@@ -301,6 +301,124 @@ Slutförd
 
 ---
 
+# Genomförande av uthyrning
+
+Genomförande av uthyrning beskriver vad som händer efter att en bokning har godkänts.
+
+Version 1 använder befintliga bokningsstatusar:
+
+- `approved`: bokningen är godkänd och objektet är reserverat, men objektet är inte utlämnat.
+- `active`: objektet är utlämnat och uthyrningen pågår.
+- `completed`: objektet är återlämnat och uthyrningen är avslutad.
+
+Nya bokningsstatusar behövs inte för Version 1.
+
+## Utlämning
+
+När administratören lämnar ut objekt ska systemet senare kunna registrera:
+
+- faktisk utlämningstid
+- vilken User som lämnade ut objektet
+- mottagande kundnamn eller enkel kvittensuppgift
+- objektets skick vid utlämning
+- fri intern kommentar
+- om deposition mottagits manuellt
+- villkors- eller avtalsversion som gäller vid utlämning
+
+Utlämning får endast ske från status `approved` till `active`.
+
+Utlämning ska vara en tydlig administrativ handling och ska historik- och audit-loggas.
+
+## Återlämning
+
+När objektet återlämnas ska systemet senare kunna registrera:
+
+- faktisk återlämningstid
+- vilken User som tog emot objektet
+- objektets skick vid återlämning
+- intern kommentar
+- om avvikelse eller skada finns
+- depositionens manuella utfall
+
+Återlämning får endast ske från status `active` till `completed`.
+
+Återlämning ska vara en tydlig administrativ handling och ska historik- och audit-loggas.
+
+## Skick och avvikelser
+
+Version 1 ska hålla skick enkelt.
+
+Rekommenderade skicknivåer:
+
+- `good`
+- `acceptable`
+- `damaged`
+
+Skick vid utlämning och återlämning ska sparas som historisk snapshot. Historiska bokningar får inte ändras när objektets aktuella skick senare ändras.
+
+Version 1 ska endast kunna markera att avvikelse eller skada finns och spara intern kommentar. Skadeärenden, bilder, kostnadsberäkning, försäkring, självrisk och fakturering byggs senare.
+
+## Planerat och faktiskt
+
+Bookingens `start_date` och `end_date` är planerade kalenderdatum.
+
+Utlämning och återlämning har faktiska tidpunkter.
+
+Systemet ska kunna visa om:
+
+- objekt lämnades ut sent
+- objekt återlämnades tidigt
+- objekt återlämnades sent
+
+Ingen automatisk avgift eller automatisk ombokning införs i Version 1.
+
+## Tidig och sen återlämning
+
+Tidig återlämning får slutföra bokningen. Eftersom `completed` inte blockerar kalendern frigörs återstående planerade dagar enligt befintlig availability-regel. Om uthyraren behöver buffert, kontroll eller service efter återlämning ska manuell kalenderblockering användas.
+
+Sen återlämning ska kunna identifieras genom faktisk återlämningsdag jämfört med planerat slutdatum. Version 1 ska inte räkna ut automatisk förseningsavgift. Om objektet behöver blockeras efter planerat slutdatum ska administratör använda manuell blockering tills ett separat förlängnings- eller sen-returflöde byggs.
+
+## Deposition
+
+Bokningen har depositionssnapshot.
+
+Genomförandeflödet ska senare kunna hålla reda på:
+
+- deposition krävs inte
+- deposition krävs
+- deposition mottagen
+- deposition återbetald
+- deposition delvis innehållen
+- deposition innehållen
+
+Detta är affärsdata och inte en betalningsintegration. Swish, Fortnox och automatisk betalningsavstämning byggs senare.
+
+## Avtal och kvittens
+
+Version 1 ska inte kräva digital signering.
+
+Rekommenderad V1-princip:
+
+- admin markerar utlämning
+- admin bekräftar att kund och villkor är genomgångna
+- fulfillment-data sparas som kvittensunderlag
+
+Framtida avtal ska baseras på snapshots från bokning, kund, objekt, pris, deposition, villkor och utlämning. Avtal och villkorsversion ska inte ändras retroaktivt när mallar eller allmänna villkor senare uppdateras.
+
+PDF-avtal, BankID-signering och extern dokumentleverans skjuts upp.
+
+## Behörighet
+
+Fulfillment följer bokningens organisation.
+
+`organization_admin` får endast lämna ut eller ta emot bokningar inom organisationer där användaren har aktivt scope.
+
+`system_admin` följer global policy.
+
+Cross-tenant-åtkomst ska skyddas på samma sätt som för bokningar, objekt, kunder och notifieringar.
+
+---
+
 # Kalender
 
 Version 1 använder bokningsdomänen som källa till tillgänglighet. Tillgänglighet ska beräknas från publicerade objekt, aktivt dagspris, aktiv kategori och blockerande bokningsstatusar. Kalendern får inte vara egen källa till sanning i Version 1.
