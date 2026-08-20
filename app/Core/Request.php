@@ -15,6 +15,11 @@ final class Request
     private ?int $authenticatedUserId = null;
 
     /**
+     * Server-built authorization context set by trusted middleware or services.
+     */
+    private ?AuthorizationContext $authorizationContext = null;
+
+    /**
      * @var array<string, string>
      */
     private array $routeParams = [];
@@ -152,6 +157,22 @@ final class Request
     public function authenticatedUserId(): ?int
     {
         return $this->authenticatedUserId;
+    }
+
+    /**
+     * Attach server-built authorization context after role lookup.
+     */
+    public function setAuthorizationContext(AuthorizationContext $authorizationContext): void
+    {
+        $this->authorizationContext = $authorizationContext;
+    }
+
+    /**
+     * Return the trusted authorization context when one has been built.
+     */
+    public function authorizationContext(): ?AuthorizationContext
+    {
+        return $this->authorizationContext;
     }
 
     /**

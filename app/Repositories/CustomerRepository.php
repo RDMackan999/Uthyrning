@@ -79,7 +79,7 @@ final class CustomerRepository extends BaseRepository
      *
      * @return Collection<Customer>
      */
-    public function findAllForAdmin(?string $statusKey = null, ?string $query = null): Collection
+    public function findAllForAdmin(?string $statusKey = null, ?string $query = null, ?array $organizationIds = null): Collection
     {
         $params = [];
         $where = 'WHERE customers.deleted_at IS NULL';
@@ -106,6 +106,8 @@ final class CustomerRepository extends BaseRepository
             $params['query_company'] = $query;
             $params['query_organization'] = $query;
         }
+
+        $where .= ' ' . $this->organizationScopeSql($organizationIds, 'customers.organization_id', $params);
 
         $statement = Database::pdo()->prepare(
             $this->adminSelectSql() . '
@@ -465,5 +467,35 @@ final class CustomerRepository extends BaseRepository
         }
 
         return (int) $value;
+    }
+
+    /**
+     * @param list<int>|null $organizationIds
+     * @param array<string, mixed> $params
+     */
+    private function organizationScopeSql(?array $organizationIds, string $column, array &$params): string
+    {
+        if ($organizationIds === null) {
+            return '';
+        }
+
+        $ids = array_values(array_filter(
+            array_unique(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if ($ids === []) {
+            return 'AND 1 = 0';
+        }
+
+        $placeholders = [];
+
+        foreach ($ids as $index => $organizationId) {
+            $name = 'scope_organization_id_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $organizationId;
+        }
+
+        return 'AND ' . $column . ' IN (' . implode(', ', $placeholders) . ')';
     }
 }

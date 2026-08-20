@@ -16,6 +16,7 @@ use App\Services\AuditService;
 use App\Services\NotificationDispatcher;
 use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
+use App\Services\OrganizationAuthorizationService;
 use Throwable;
 
 /**
@@ -31,6 +32,7 @@ final class AdminNotificationController extends BaseController
         private readonly NotificationDispatcher $dispatcher = new NotificationDispatcher(),
         private readonly NotificationService $notificationService = new NotificationService(),
         private readonly AuditService $auditService = new AuditService(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -59,7 +61,8 @@ final class AdminNotificationController extends BaseController
             $attemptRepository,
             $dispatcher,
             new NotificationService($notificationRepository, $dispatcher, $templateService, $auditService),
-            $auditService
+            $auditService,
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -74,7 +77,11 @@ final class AdminNotificationController extends BaseController
         return $this->viewWithLayout('admin/notifications/index', 'layouts/admin', [
             'pageTitle' => 'Notifieringar',
             'notifications' => $this->withMaskedRecipients(
-                $this->notificationRepository->findAllForAdmin($statusFilter, $eventFilter)
+                $this->notificationRepository->findAllForAdmin(
+                    $statusFilter,
+                    $eventFilter,
+                    $this->authorizationService->organizationScopeForRequest($request)
+                )
             ),
             'statusFilter' => $statusFilter,
             'eventFilter' => $eventFilter,
@@ -94,7 +101,8 @@ final class AdminNotificationController extends BaseController
         $notificationData = $notification->toArray();
         $notificationId = (int) ($notificationData['id'] ?? 0);
         $adminData = $this->notificationRepository->findAdminByPublicId(
-            (string) ($notificationData['public_id'] ?? '')
+            (string) ($notificationData['public_id'] ?? ''),
+            $this->authorizationService->isSystemAdmin($request) ? null : (int) ($notificationData['organization_id'] ?? 0)
         );
 
         if ($adminData === null) {
@@ -164,6 +172,15 @@ final class AdminNotificationController extends BaseController
         if ($notification === null) {
             throw new NotFoundException();
         }
+
+        $notificationData = $notification->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($notificationData['organization_id'] ?? 0),
+            'notification',
+            (int) ($notificationData['id'] ?? 0),
+            'manage'
+        );
 
         return $notification;
     }

@@ -7,8 +7,8 @@ namespace App\Middleware;
 use App\Core\MiddlewareInterface;
 use App\Core\Request;
 use App\Core\Response;
-use App\Repositories\RoleRepository;
 use App\Services\AuditService;
+use App\Services\OrganizationAuthorizationService;
 
 /**
  * Enforces server-side role requirements for protected backend routes.
@@ -20,7 +20,7 @@ final class AuthorizationMiddleware implements MiddlewareInterface
      */
     public function __construct(
         private readonly array $requiredRoles,
-        private readonly RoleRepository $roleRepository = new RoleRepository(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         private readonly AuditService $auditService = new AuditService()
     ) {
     }
@@ -35,7 +35,7 @@ final class AuthorizationMiddleware implements MiddlewareInterface
             return Response::text('Forbidden', 403);
         }
 
-        if (!$this->roleRepository->userHasAnySystemRole($userId, $this->requiredRoles)) {
+        if (!$this->authorizationService->canPassRoute($request, $this->requiredRoles)) {
             $this->auditAuthorizationFailed($userId, $request, 'missing_required_role');
             $this->auditUnauthorizedAdminAccess($userId, $request);
 

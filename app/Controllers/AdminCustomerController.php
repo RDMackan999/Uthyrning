@@ -14,6 +14,7 @@ use App\Models\Customer;
 use App\Repositories\CompanyRepository;
 use App\Repositories\CustomerRepository;
 use App\Services\AuditService;
+use App\Services\OrganizationAuthorizationService;
 use Throwable;
 
 /**
@@ -33,6 +34,7 @@ final class AdminCustomerController extends BaseController
         private readonly CompanyRepository $companyRepository = new CompanyRepository(),
         private readonly CustomerFormRequest $formRequest = new CustomerFormRequest(),
         private readonly AuditService $auditService = new AuditService(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -51,7 +53,8 @@ final class AdminCustomerController extends BaseController
             $customerRepository,
             new CompanyRepository(),
             new CustomerFormRequest($customerRepository),
-            new AuditService()
+            new AuditService(),
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -65,7 +68,9 @@ final class AdminCustomerController extends BaseController
 
         return $this->viewWithLayout('admin/customers/index', 'layouts/admin', [
             'pageTitle' => 'Kunder',
-            'customers' => $this->customerRepository->findAllForAdmin($statusFilter, $query)->toArray(),
+            'customers' => $this->customerRepository
+                ->findAllForAdmin($statusFilter, $query, $this->authorizationService->organizationScopeForRequest($request))
+                ->toArray(),
             'statusFilter' => $statusFilter,
             'query' => $query,
             'statusOptions' => $this->statusOptions(),
@@ -240,10 +245,21 @@ final class AdminCustomerController extends BaseController
         }
 
         try {
-            return $this->customerRepository->findById((int) $id);
+            $customer = $this->customerRepository->findById((int) $id);
         } catch (Throwable) {
             throw new NotFoundException();
         }
+
+        $customerData = $customer->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($customerData['organization_id'] ?? 0),
+            'customer',
+            (int) ($customerData['id'] ?? 0),
+            'manage'
+        );
+
+        return $customer;
     }
 
     private function customerPath(Customer $customer): string

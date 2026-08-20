@@ -44,15 +44,19 @@ final class OrganizationRepository extends BaseRepository
      *
      * @return Collection<Organization>
      */
-    public function findAllActive(): Collection
+    public function findAllActive(?array $organizationIds = null): Collection
     {
+        $params = ['status_key' => 'active'];
+        $scopeSql = $this->organizationScopeSql($organizationIds, $params);
+
         $statement = Database::pdo()->prepare(
             'SELECT * FROM organizations
              WHERE status_key = :status_key
                 AND deleted_at IS NULL
+                ' . $scopeSql . '
              ORDER BY name ASC, id ASC'
         );
-        $statement->execute(['status_key' => 'active']);
+        $statement->execute($params);
 
         return new Collection(array_map(
             static fn (array $row): Organization => new Organization($row),
@@ -84,5 +88,35 @@ final class OrganizationRepository extends BaseRepository
         ]);
 
         return $this->findById((int) Database::pdo()->lastInsertId());
+    }
+
+    /**
+     * @param list<int>|null $organizationIds
+     * @param array<string, mixed> $params
+     */
+    private function organizationScopeSql(?array $organizationIds, array &$params): string
+    {
+        if ($organizationIds === null) {
+            return '';
+        }
+
+        $ids = array_values(array_filter(
+            array_unique(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if ($ids === []) {
+            return 'AND 1 = 0';
+        }
+
+        $placeholders = [];
+
+        foreach ($ids as $index => $organizationId) {
+            $name = 'organization_id_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $organizationId;
+        }
+
+        return 'AND id IN (' . implode(', ', $placeholders) . ')';
     }
 }

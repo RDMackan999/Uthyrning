@@ -15,6 +15,7 @@ use App\Models\ItemRate;
 use App\Models\RentalItem;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\RentalItemRepository;
+use App\Services\OrganizationAuthorizationService;
 use Throwable;
 
 /**
@@ -28,6 +29,7 @@ final class ItemRateController extends BaseController
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
         private readonly ItemRateRepository $itemRateRepository = new ItemRateRepository(),
         private readonly ItemRateFormRequest $formRequest = new ItemRateFormRequest(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -45,7 +47,8 @@ final class ItemRateController extends BaseController
         return new self(
             new RentalItemRepository(),
             $itemRateRepository,
-            new ItemRateFormRequest($itemRateRepository)
+            new ItemRateFormRequest($itemRateRepository),
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -237,6 +240,15 @@ final class ItemRateController extends BaseController
             throw new NotFoundException();
         }
 
+        $itemData = $item->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'rental_item',
+            (int) ($itemData['id'] ?? 0),
+            'manage_item_rates'
+        );
+
         return $item;
     }
 
@@ -254,7 +266,7 @@ final class ItemRateController extends BaseController
         $itemData = $item->toArray();
 
         try {
-            return $this->itemRateRepository->findByIdForItem(
+            $rate = $this->itemRateRepository->findByIdForItem(
                 (int) ($itemData['organization_id'] ?? 0),
                 (int) ($itemData['id'] ?? 0),
                 (int) $rateId
@@ -262,6 +274,16 @@ final class ItemRateController extends BaseController
         } catch (ModelException) {
             throw new NotFoundException();
         }
+
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'item_rate',
+            (int) ($rate->toArray()['id'] ?? 0),
+            'manage'
+        );
+
+        return $rate;
     }
 
     /**

@@ -11,6 +11,12 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO roles (organization_id, role_key, name, description, status_key)
+SELECT NULL, 'organization_admin', 'Organization administrator', 'Scoped administrator role for one or more rental organizations.', 'active'
+WHERE NOT EXISTS (
+    SELECT 1 FROM roles WHERE organization_id IS NULL AND role_key = 'organization_admin'
+);
+
+INSERT INTO roles (organization_id, role_key, name, description, status_key)
 SELECT NULL, 'organization_staff', 'Organization staff', 'Role for future staff in a rental organization.', 'active'
 WHERE NOT EXISTS (
     SELECT 1 FROM roles WHERE organization_id IS NULL AND role_key = 'organization_staff'
@@ -76,6 +82,21 @@ FROM roles
 CROSS JOIN permissions
 WHERE roles.organization_id IS NULL
     AND roles.role_key = 'system_admin';
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT roles.id, permissions.id
+FROM roles
+INNER JOIN permissions
+    ON permissions.permission_key IN (
+        'organizations.view',
+        'users.view',
+        'companies.view',
+        'companies.manage',
+        'customers.view',
+        'customers.manage'
+    )
+WHERE roles.organization_id IS NULL
+    AND roles.role_key = 'organization_admin';
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT roles.id, permissions.id
