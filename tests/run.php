@@ -49,6 +49,7 @@ use App\Services\Email\SmtpEmailTransport;
 use App\Services\NotificationDispatcher;
 use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
+use App\Services\OrganizationAdminAssignmentService;
 use App\Services\OrganizationAuthorizationService;
 use App\Services\RentalItemPublicationService;
 use App\Services\SessionService;
@@ -5529,6 +5530,327 @@ $runner->test('organization scoped authorization protects admin resources', stat
             auditCount('system_admin_global_access', 'rental_item') >= 1,
             'system_admin global resource access should be audited.'
         );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('system admin manages organization admin assignments safely', static function () use (
+    $basePath,
+    $repository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $pdo = pdo();
+    $rentalItemRepository = new RentalItemRepository();
+    $itemRateRepository = new ItemRateRepository();
+    $assignmentService = new OrganizationAdminAssignmentService();
+    $roleRepository = new RoleRepository();
+    $bookingService = new BookingService(
+        $bookingRepository,
+        $bookingItemRepository,
+        $rentalItemRepository,
+        $bookingAvailabilityService,
+        $bookingPricingService
+    );
+
+    $assignmentCount = static function (int $userId, int $roleId, int $organizationId) use ($pdo): int {
+        $statement = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM user_roles
+             WHERE user_id = :user_id
+                AND role_id = :role_id
+                AND organization_id = :organization_id'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return (int) $statement->fetchColumn();
+    };
+    $roleIdForKey = static function (string $roleKey) use ($pdo): int {
+        $statement = $pdo->prepare(
+            'SELECT id
+             FROM roles
+             WHERE role_key = :role_key
+                AND organization_id IS NULL
+                AND deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute(['role_key' => $roleKey]);
+
+        return (int) $statement->fetchColumn();
+    };
+
+    $pdo->beginTransaction();
+
+    try {
+        $suffix = bin2hex(random_bytes(4));
+        $organizationAId = createOrganization('Assignment A ' . $suffix, 'assignment-a-' . $suffix);
+        $organizationBId = createOrganization('Assignment B ' . $suffix, 'assignment-b-' . $suffix);
+        setOrganizationEmail($organizationAId, 'assignment-admin-a-' . $suffix . '@example.com');
+        setOrganizationEmail($organizationBId, 'assignment-admin-b-' . $suffix . '@example.com');
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for assignment tests.');
+        $categoryId = (int) ($globalCategory->toArray()['id'] ?? 0);
+        $itemA = createBookableRentalItem(
+            $organizationAId,
+            $categoryId,
+            'assignment-item-a-' . $suffix,
+            'Assignment Item A ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemB = createBookableRentalItem(
+            $organizationBId,
+            $categoryId,
+            'assignment-item-b-' . $suffix,
+            'Assignment Item B ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemAData = $itemA->toArray();
+        $itemBData = $itemB->toArray();
+        $bookingA = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemAData['id'] ?? 0),
+            'start_date' => '2037-02-01',
+            'end_date' => '2037-02-01',
+            'customer_name' => 'Assignment Customer A ' . $suffix,
+            'customer_email' => 'assignment-a-' . $suffix . '@example.com',
+            'customer_phone' => '070-820 00 10',
+        ]);
+        $bookingB = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemBData['id'] ?? 0),
+            'start_date' => '2037-02-02',
+            'end_date' => '2037-02-02',
+            'customer_name' => 'Assignment Customer B ' . $suffix,
+            'customer_email' => 'assignment-b-' . $suffix . '@example.com',
+            'customer_phone' => '070-820 00 11',
+        ]);
+        $customerAId = (int) ($bookingA->toArray()['customer_id'] ?? 0);
+        $notificationA = notificationForBooking((int) ($bookingA->toArray()['id'] ?? 0), 'booking_created', 'admin');
+        $notificationB = notificationForBooking((int) ($bookingB->toArray()['id'] ?? 0), 'booking_created', 'admin');
+        $systemAdminSession = createAuthenticatedTestUser(true);
+        $targetSession = createAuthenticatedTestUser(false);
+        $organizationAdminSession = createAuthenticatedTestUser(false, [$organizationAId]);
+        $normalUserSession = createAuthenticatedTestUser(false);
+        $systemAdminToken = $systemAdminSession['token'];
+        $targetUserId = $targetSession['user_id'];
+        $organizationAdminRole = $roleRepository->findOrganizationAdminRole();
+        assertNotNull($organizationAdminRole, 'organization_admin role should exist.');
+        $organizationAdminRoleId = (int) ($organizationAdminRole->toArray()['id'] ?? 0);
+        $systemAdminRole = $roleRepository->findSystemAdminRole();
+        assertNotNull($systemAdminRole, 'system_admin role should exist.');
+        $systemAdminRoleId = (int) ($systemAdminRole->toArray()['id'] ?? 0);
+        $staffRoleId = $roleIdForKey('organization_staff');
+        assertTrue($staffRoleId > 0, 'organization_staff role should exist for non-target role fixture.');
+        $roleRepository->assignToUser($targetUserId, $staffRoleId, $organizationAId);
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+        $systemAdminCookies = ['uthyrning_session' => $systemAdminToken];
+        $targetCookies = ['uthyrning_session' => $targetSession['token']];
+
+        $systemList = $router->dispatch(new Request('GET', '/admin/organization-admins', [], [], $systemAdminCookies, $server));
+        assertSame(200, $systemList->statusCode(), 'system_admin should open organization admin list.');
+        assertTrue(str_contains($systemList->content(), 'Tilldela roll'), 'Assignment list should link to assignment form.');
+        assertSame(403, $router->dispatch(new Request(
+            'GET',
+            '/admin/organization-admins',
+            [],
+            [],
+            ['uthyrning_session' => $organizationAdminSession['token']],
+            $server
+        ))->statusCode(), 'organization_admin should not open organization admin management.');
+        assertSame(403, $router->dispatch(new Request(
+            'GET',
+            '/admin/organization-admins',
+            [],
+            [],
+            ['uthyrning_session' => $normalUserSession['token']],
+            $server
+        ))->statusCode(), 'Normal users should not open organization admin management.');
+
+        $assignForm = $router->dispatch(new Request('GET', '/admin/organization-admins/assign', [], [], $systemAdminCookies, $server));
+        assertSame(200, $assignForm->statusCode(), 'system_admin should open assignment form.');
+        assertTrue(str_contains($assignForm->content(), 'organization_admin'), 'Assignment form should show fixed role intent.');
+        assertFalse(str_contains($assignForm->content(), 'system_admin</option>'), 'Assignment form should not expose system_admin as selectable role.');
+
+        $missingCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/organization-admins',
+            [],
+            [
+                'user_id' => (string) $targetUserId,
+                'organization_id' => (string) $organizationAId,
+            ],
+            $systemAdminCookies,
+            $server
+        ));
+        assertSame(200, $missingCsrf->statusCode(), 'Assignment should require CSRF and render safe form error.');
+        assertSame(0, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationAId), 'Missing CSRF should not create assignment.');
+
+        $invalidUser = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins',
+            $systemAdminToken,
+            [
+                'user_id' => '999999999',
+                'organization_id' => (string) $organizationAId,
+            ]
+        ));
+        assertSame(200, $invalidUser->statusCode(), 'Invalid user should be rejected safely.');
+        $invalidOrganization = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins',
+            $systemAdminToken,
+            [
+                'user_id' => (string) $targetUserId,
+                'organization_id' => '999999999',
+            ]
+        ));
+        assertSame(200, $invalidOrganization->statusCode(), 'Invalid organization should be rejected safely.');
+
+        $assignA = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins',
+            $systemAdminToken,
+            [
+                'user_id' => (string) $targetUserId,
+                'organization_id' => (string) $organizationAId,
+            ]
+        ));
+        assertSame(302, $assignA->statusCode(), 'system_admin should assign organization_admin.');
+        assertSame(1, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationAId), 'Assignment should create scoped user_roles row.');
+
+        $duplicateA = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins',
+            $systemAdminToken,
+            [
+                'user_id' => (string) $targetUserId,
+                'organization_id' => (string) $organizationAId,
+            ]
+        ));
+        assertSame(302, $duplicateA->statusCode(), 'Duplicate assignment should redirect safely.');
+        assertSame(1, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationAId), 'Duplicate assignment should not create duplicate rows.');
+
+        $targetItemListA = $router->dispatch(new Request('GET', '/admin/items', [], [], $targetCookies, $server));
+        assertSame(200, $targetItemListA->statusCode(), 'Assigned organization_admin should access scoped item admin.');
+        assertTrue(str_contains($targetItemListA->content(), 'Assignment Item A ' . $suffix), 'Assigned user should see organization A item.');
+        assertFalse(str_contains($targetItemListA->content(), 'Assignment Item B ' . $suffix), 'Assigned user should not see organization B item.');
+        $targetBookingListA = $router->dispatch(new Request('GET', '/admin/bookings', [], [], $targetCookies, $server));
+        assertTrue(str_contains($targetBookingListA->content(), (string) ($bookingA->toArray()['public_id'] ?? '')), 'Assigned user should see organization A booking.');
+        assertFalse(str_contains($targetBookingListA->content(), (string) ($bookingB->toArray()['public_id'] ?? '')), 'Assigned user should not see organization B booking.');
+        $targetCustomerA = $router->dispatch(new Request('GET', '/admin/customers/' . $customerAId, [], [], $targetCookies, $server));
+        assertSame(200, $targetCustomerA->statusCode(), 'Assigned user should access organization A customer.');
+        $targetNotificationListA = $router->dispatch(new Request('GET', '/admin/notifications', [], [], $targetCookies, $server));
+        assertTrue(str_contains($targetNotificationListA->content(), (string) ($notificationA->toArray()['public_id'] ?? '')), 'Assigned user should see organization A notification.');
+        assertFalse(str_contains($targetNotificationListA->content(), (string) ($notificationB->toArray()['public_id'] ?? '')), 'Assigned user should not see organization B notification.');
+        $targetCrossTenantDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $targetCookies,
+            $server
+        ));
+        assertSame(404, $targetCrossTenantDetail->statusCode(), 'Cross-tenant IDOR should remain safe after assignment.');
+
+        $assignBWithManipulatedRole = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins',
+            $systemAdminToken,
+            [
+                'user_id' => (string) $targetUserId,
+                'organization_id' => (string) $organizationBId,
+                'role_id' => (string) $systemAdminRoleId,
+                'role_key' => 'system_admin',
+            ]
+        ));
+        assertSame(302, $assignBWithManipulatedRole->statusCode(), 'Manipulated role fields should not break safe assignment.');
+        assertSame(1, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationBId), 'Manipulated role fields should still assign only organization_admin.');
+        assertSame(0, $assignmentCount($targetUserId, $systemAdminRoleId, $organizationBId), 'Manipulated role fields must not create system_admin scope.');
+        assertSame(
+            2,
+            count($assignmentService->listOrganizationsForUser($targetUserId)),
+            'Same user should be organization_admin for two organizations through separate assignments.'
+        );
+
+        $targetItemListBoth = $router->dispatch(new Request('GET', '/admin/items', [], [], $targetCookies, $server));
+        assertTrue(str_contains($targetItemListBoth->content(), 'Assignment Item A ' . $suffix), 'Multi-organization admin should see organization A item.');
+        assertTrue(str_contains($targetItemListBoth->content(), 'Assignment Item B ' . $suffix), 'Multi-organization admin should see organization B item.');
+        $systemAdminItemB = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $systemAdminCookies,
+            $server
+        ));
+        assertSame(200, $systemAdminItemB->statusCode(), 'system_admin global item access should continue to work.');
+
+        $missingRevokeCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/organization-admins/' . $targetUserId . '/' . $organizationAId . '/revoke',
+            [],
+            [],
+            $systemAdminCookies,
+            $server
+        ));
+        assertSame(302, $missingRevokeCsrf->statusCode(), 'Revoke should require CSRF.');
+        assertSame(1, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationAId), 'Missing revoke CSRF should not remove assignment.');
+
+        $revokeA = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/organization-admins/' . $targetUserId . '/' . $organizationAId . '/revoke',
+            $systemAdminToken
+        ));
+        assertSame(302, $revokeA->statusCode(), 'system_admin should revoke one scoped assignment.');
+        assertSame(0, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationAId), 'Revoke should remove only organization A assignment.');
+        assertSame(1, $assignmentCount($targetUserId, $organizationAdminRoleId, $organizationBId), 'Revoke A should not remove organization B assignment.');
+        assertSame(1, $assignmentCount($targetUserId, $staffRoleId, $organizationAId), 'Revoke should not remove other roles.');
+
+        $targetItemListAfterRevoke = $router->dispatch(new Request('GET', '/admin/items', [], [], $targetCookies, $server));
+        assertSame(200, $targetItemListAfterRevoke->statusCode(), 'Remaining organization assignment should still pass route access.');
+        assertFalse(str_contains($targetItemListAfterRevoke->content(), 'Assignment Item A ' . $suffix), 'Revoked organization should disappear on next request.');
+        assertTrue(str_contains($targetItemListAfterRevoke->content(), 'Assignment Item B ' . $suffix), 'Other organization assignment should remain after revoke.');
+        $targetItemAAfterRevoke = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemAData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $targetCookies,
+            $server
+        ));
+        assertSame(404, $targetItemAAfterRevoke->statusCode(), 'Revoked organization access should be lost at next request.');
+        $targetItemBAfterRevoke = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $targetCookies,
+            $server
+        ));
+        assertSame(200, $targetItemBAfterRevoke->statusCode(), 'Non-revoked organization access should remain.');
+
+        assertTrue(auditCount('organization_admin_assigned', 'user_role') >= 2, 'Assignment audit should be written.');
+        assertTrue(auditCount('organization_admin_revoked', 'user_role') >= 1, 'Revoke audit should be written.');
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

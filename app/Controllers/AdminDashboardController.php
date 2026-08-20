@@ -63,6 +63,7 @@ final class AdminDashboardController extends BaseController
             'displayName' => $displayName !== '' ? $displayName : $email,
             'email' => $email,
             'authorizationLabel' => $this->authorizationLabel($request),
+            'showSystemAdminNavigation' => $this->authorizationService->isSystemAdmin($request),
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
         ]);
     }

@@ -112,6 +112,167 @@ final class RoleRepository extends BaseRepository
     }
 
     /**
+     * Determine whether an exact user-role-organization assignment exists.
+     */
+    public function assignmentExists(int $userId, int $roleId, int $organizationId): bool
+    {
+        if ($userId <= 0 || $roleId <= 0 || $organizationId <= 0) {
+            return false;
+        }
+
+        $statement = Database::pdo()->prepare(
+            'SELECT 1
+             FROM user_roles
+             WHERE user_id = :user_id
+                AND role_id = :role_id
+                AND organization_id = :organization_id
+             LIMIT 1'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    /**
+     * Create one scoped assignment if it does not already exist.
+     */
+    public function assignToUserForOrganization(int $userId, int $roleId, int $organizationId): bool
+    {
+        if ($this->assignmentExists($userId, $roleId, $organizationId)) {
+            return false;
+        }
+
+        $statement = Database::pdo()->prepare(
+            'INSERT INTO user_roles (
+                user_id,
+                role_id,
+                organization_id,
+                created_at,
+                updated_at
+            ) VALUES (
+                :user_id,
+                :role_id,
+                :organization_id,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Delete only the exact scoped user-role assignment.
+     */
+    public function revokeFromUserForOrganization(int $userId, int $roleId, int $organizationId): bool
+    {
+        $statement = Database::pdo()->prepare(
+            'DELETE FROM user_roles
+             WHERE user_id = :user_id
+                AND role_id = :role_id
+                AND organization_id = :organization_id
+             LIMIT 1'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_id' => $organizationId,
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
+    /**
+     * List scoped assignments for one role.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listAssignmentsForRole(int $roleId, ?int $organizationId = null): array
+    {
+        $params = [
+            'role_id' => $roleId,
+            'user_status_key' => 'active',
+            'organization_status_key' => 'active',
+        ];
+        $sql = 'SELECT user_roles.id AS user_role_id,
+                user_roles.user_id,
+                user_roles.role_id,
+                user_roles.organization_id,
+                user_roles.created_at AS assigned_at,
+                users.email,
+                users.email_normalized,
+                users.first_name,
+                users.last_name,
+                organizations.name AS organization_name
+             FROM user_roles
+             INNER JOIN users ON users.id = user_roles.user_id
+             INNER JOIN organizations ON organizations.id = user_roles.organization_id
+             WHERE user_roles.role_id = :role_id
+                AND user_roles.organization_id IS NOT NULL
+                AND users.status_key = :user_status_key
+                AND users.deleted_at IS NULL
+                AND organizations.status_key = :organization_status_key
+                AND organizations.deleted_at IS NULL';
+
+        if ($organizationId !== null) {
+            $sql .= ' AND user_roles.organization_id = :organization_id';
+            $params['organization_id'] = $organizationId;
+        }
+
+        $sql .= ' ORDER BY organizations.name ASC, users.email_normalized ASC, user_roles.id ASC';
+
+        $statement = Database::pdo()->prepare($sql);
+        $statement->execute($params);
+
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return $rows;
+    }
+
+    /**
+     * List organizations where one user has a scoped role.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listOrganizationsForUserRole(int $userId, int $roleId): array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT organizations.id,
+                organizations.name,
+                organizations.slug,
+                user_roles.created_at AS assigned_at
+             FROM user_roles
+             INNER JOIN organizations ON organizations.id = user_roles.organization_id
+             WHERE user_roles.user_id = :user_id
+                AND user_roles.role_id = :role_id
+                AND user_roles.organization_id IS NOT NULL
+                AND organizations.status_key = :organization_status_key
+                AND organizations.deleted_at IS NULL
+             ORDER BY organizations.name ASC, organizations.id ASC'
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'role_id' => $roleId,
+            'organization_status_key' => 'active',
+        ]);
+
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return $rows;
+    }
+
+    /**
      * Determine whether a user has at least one active system-level role.
      *
      * @param list<string> $roleKeys

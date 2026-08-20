@@ -188,7 +188,17 @@ final class OrganizationAuthorizationService
             return false;
         }
 
-        return $context->hasAnyRole($requiredRoles);
+        foreach ($requiredRoles as $roleKey) {
+            if ($roleKey === self::SYSTEM_ADMIN && $context->hasSystemRole(self::SYSTEM_ADMIN)) {
+                return true;
+            }
+
+            if ($roleKey === self::ORGANIZATION_ADMIN && $context->hasAnyOrganizationRole(self::ORGANIZATION_ADMIN)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function auditDenied(

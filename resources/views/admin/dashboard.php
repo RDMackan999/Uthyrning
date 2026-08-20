@@ -3,6 +3,7 @@
 $displayName = is_string($displayName ?? null) && $displayName !== '' ? $displayName : 'okänd användare';
 $email = is_string($email ?? null) ? $email : '';
 $authorizationLabel = is_string($authorizationLabel ?? null) ? $authorizationLabel : 'unknown';
+$showSystemAdminNavigation = (bool) ($showSystemAdminNavigation ?? false);
 
 $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 ?>
@@ -24,4 +25,8 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
     </div>
 
     <p>Administrationsfunktioner byggs i kommande sprintar.</p>
+
+    <?php if ($showSystemAdminNavigation): ?>
+        <p><a class="admin-button" href="/admin/organization-admins">Organisationsadministratörer</a></p>
+    <?php endif; ?>
 </section>
