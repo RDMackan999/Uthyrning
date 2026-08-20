@@ -696,13 +696,31 @@ Historiken får inte kunna ändras i efterhand.
 
 Version 1 har följande roller:
 
-- Administratör
+- `system_admin`
+- `organization_admin`
 - Kund
 
-Version 2 inför:
+`system_admin` är en global plattformsroll. Den får hantera systemövergripande administration och får se data över organisationsgränser endast när flödet uttryckligen kräver det.
 
-- Uthyrare
-- Support
+`organization_admin` är en organisationsscopad administratörsroll. En användare får vara administratör för en eller flera organisationer, men får bara hantera resurser som tillhör de organisationerna.
+
+Organisation-admin får i Version 1 hantera organisationens egna adminflöden enligt respektive sprint, till exempel objekt, bokningar, kunder och notifieringar när dessa flöden har stöd för organisationsscope.
+
+Organisation-admin får inte:
+
+- se eller ändra andra organisationers data
+- använda klientinskickat `organization_id` utan serververifiering
+- ändra `public_id` eller tekniska id:n
+- skapa globala roller eller systeminställningar
+
+När en befintlig resurs hanteras ska organisationen härledas från resursen. När en ny resurs skapas ska organisationen väljas från användarens tillåtna organisationer och verifieras på serversidan.
+
+Framtida roller:
+
+- `organization_staff`
+- `booking_manager`
+- `inventory_manager`
+- supportroller
 
 ---
 

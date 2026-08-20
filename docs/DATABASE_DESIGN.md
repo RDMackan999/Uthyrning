@@ -406,6 +406,102 @@ Framtida integrationer:
 - Personnummer ska inte lagras okrypterat om det inte finns dokumenterat juridiskt behov.
 - Externa identifierare ska ha unikhet per provider och aldrig loggas i klartext om de är känsliga.
 
+#### Sprint 8C: Organization Admin Authorization Design
+
+Adminbehörighet ska bygga vidare på hybridmodellen från identitetsdesignen.
+
+Rekommenderad rollmodell:
+
+- `system_admin` är global systemroll och tilldelas utan `organization_id`.
+- `organization_admin` är en standardroll som ger adminrättigheter inom tilldelade organisationer.
+- En användare kan vara `organization_admin` för flera organisationer genom flera rader i `user_roles`.
+- `roles.organization_id` behålls nullable för framtida organisationsspecifika roller, men Version 1 bör använda en global rollrad för `organization_admin` och lägga scope i `user_roles.organization_id`.
+- Framtida roller som `organization_staff`, `booking_manager` och `inventory_manager` kan införas med samma scopemodell men designas inte i detalj här.
+
+Rekommenderade tabeller som används:
+
+- `users`: inloggad säkerhetsidentitet.
+- `roles`: rollnycklar, till exempel `system_admin` och `organization_admin`.
+- `permissions`: finmaskiga rättigheter som roller kan bära.
+- `role_permissions`: koppling mellan roller och rättigheter.
+- `user_roles`: användarens rolltilldelning och organisationsscope.
+- `organizations`: tenant-/uthyrarscope.
+- `companies` och `company_users`: företagsrelationer, inte primär adminauktorisering.
+
+Rekommenderad scoperegel:
+
+- `system_admin` kräver `user_roles.organization_id IS NULL`.
+- `organization_admin` kräver `user_roles.organization_id IS NOT NULL`.
+- `organization_admin` med `NULL` scope ska inte ge åtkomst.
+- `system_admin` med organisationsscope ska inte tolkas som organisationsadmin utan uttryckligt beslut.
+
+Auth context:
+
+- `actor_user_id`
+- globala systemroller
+- organisationsroller per `organization_id`
+- lista över organisationer användaren får administrera
+- aktuell organisationskontext
+- resurstyp och resurs-id när åtgärden gäller befintlig resurs
+
+Aktuell organisationskontext ska i första hand härledas från resursen:
+
+- `rental_items.organization_id` för objekt.
+- Ägande objekt för item rates och availability blocks.
+- `bookings.organization_id` för bokningar.
+- `customers.organization_id` för kunder.
+- `companies.organization_id` för företag.
+- `notifications.organization_id` för notifieringar.
+
+Vid skapande får organisation väljas från användarens tillåtna organisationer. Servern ska verifiera valet innan insert. Klientinskickat `organization_id` får aldrig ensamt avgöra scope.
+
+Resursauktorisering:
+
+- `system_admin` får passera organisationsscope endast i dokumenterade globala adminflöden.
+- `organization_admin` får läsa, skapa, ändra och arkivera resurser inom tilldelade organisationer när respektive domänregel tillåter åtgärden.
+- Bokningar ska auktoriseras mot `bookings.organization_id`, som i sin tur ska komma från objektets organisation när bokningen skapas.
+- Kunder ska auktoriseras mot `customers.organization_id`.
+- Företag ska auktoriseras mot `companies.organization_id`.
+- Notifieringar ska auktoriseras mot `notifications.organization_id` och relaterad bokning/kund när sådan finns.
+
+Ansvarsfördelning:
+
+- `AuthenticationMiddleware` identifierar användaren.
+- `AuthorizationMiddleware` gör grov route-kontroll, till exempel `system_admin` eller någon `organization_admin`.
+- Ett framtida auktoriseringslager eller service bygger auth context och kontrollerar resursens organisation.
+- Repositories ska ta emot verifierat scope eller använda metoder som filtrerar på organisation när användaren inte är global systemadmin.
+
+IDOR och cross-tenant-skydd:
+
+- Adminflöden ska söka resurser med både identifierare och tillåtet organisation-scope när användaren är organisationsscopad.
+- Felmeddelanden ska inte avslöja om en resurs finns i en annan organisation.
+- 404-liknande svar rekommenderas för resursdetaljer där existens inte ska läcka.
+- 403 kan användas för route-nivå när användaren saknar adminroll helt.
+- Nekade åtkomstförsök ska audit-loggas.
+
+Audit:
+
+- Behörighetskritiska händelser ska logga `actor_user_id`.
+- Händelser med organisationsscope ska logga `organization_id`.
+- Resursändringar bör logga resurstyp, resurs-id, åtgärd, resultat och orsak vid nekad åtkomst.
+- Loggar får inte innehålla lösenord, tokens, sessions-id, personnummer eller externa identitetshemligheter.
+
+Rekommenderad databasutveckling:
+
+- Seed ska senare säkerställa rollerna `system_admin` och `organization_admin`.
+- `user_roles(user_id, organization_id)` ska indexeras för snabba scopekontroller.
+- `roles.key` eller motsvarande rollnyckel ska vara unik enligt vald scope-regel.
+- Audit-tabeller bör ha nullable `organization_id` för sökning och rapportering, även om mer detaljer kan ligga i strukturerad context.
+- Om databasmotorn och migrationsstrategin tillåter bör framtida constraints eller valideringsregler skydda mot felaktig scopekombination för systemroller och organisationsroller.
+
+Sprint 8D bör endast implementera auth context, route-strategi och säkra scopekontroller. Sprint 8D ska inte bygga roll-UI, organisationsväljare, nya portaler eller finmaskiga framtidsroller.
+
+Öppna frågor:
+
+- Ska `organization_users` införas som separat medlemskap för icke-adminpersonal, eller räcker `user_roles` tills fler organisationsroller byggs?
+- Ska `organization_admin` få alla organisationens adminrättigheter i Version 1, eller ska vissa flöden kräva separata permissions redan från start?
+- Ska systemadminens cross-tenant-läsning alltid kräva extra audit-orsak i UI när adminflöden blir mer känsliga?
+
 #### Sprint 2C: Authentication Design
 
 Autentisering ska byggas som ett separat lager ovanpå identitetsdomänen. `users` är kontoidentiteten, men sessioner, reset-token, e-postverifiering och autentiseringsloggning ska modelleras i separata tabeller när de implementeras.
