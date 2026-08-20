@@ -103,11 +103,15 @@ Skapa avtal
 ```
 Dashboard
     ↓
-Aktiv bokning
+Godkänd bokning
     ↓
 Kontrollera legitimation
     ↓
 Dokumentera skick
+    ↓
+Bekräfta villkor/kvittens
+    ↓
+Registrera eventuell deposition
     ↓
 Lämna ut objekt
 ```
@@ -115,7 +119,11 @@ Lämna ut objekt
 ### Resultat
 
 - Utlämning registrerad.
-- Starttid sparas.
+- Faktisk utlämningstid sparas.
+- Ansvarig administratör sparas.
+- Skick vid utlämning sparas som snapshot.
+- Bokningen går från `approved` till `active`.
+- Historik och audit sparas.
 
 ---
 
@@ -135,7 +143,13 @@ Avsluta bokning
 
 ### Resultat
 
-- Objekt blir ledigt.
+- Faktisk återlämningstid sparas.
+- Ansvarig administratör sparas.
+- Skick vid återlämning sparas som snapshot.
+- Eventuell avvikelse eller skada markeras på enkel V1-nivå.
+- Depositionens manuella utfall kan dokumenteras när deposition finns.
+- Bokningen går från `active` till `completed`.
+- Objektet blir ledigt enligt befintliga availability-regler om ingen annan blockering finns.
 - Historik sparas.
 
 ---

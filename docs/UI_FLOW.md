@@ -494,6 +494,59 @@ Adminvyn ska inte visa fullständig e-postbody som standard.
 
 ---
 
+# Genomförande av uthyrning
+
+Fulfillment-flödet ska senare ligga på bokningsdetaljen i admin.
+
+Approved booking:
+
+- visa tydlig action `Lämna ut`
+- visa planerad period
+- visa kundsnapshot
+- visa objekt och pris-/depositionssnapshot
+- visa villkors- eller avtalsversion när den finns
+
+Formulär för `Lämna ut` bör innehålla:
+
+- faktisk utlämningstid, förifylld med nu
+- mottagande kundnamn eller kvittensnamn
+- skick vid utlämning
+- intern kommentar
+- deposition mottagen, om deposition krävs
+- enkel bekräftelse att villkor/kvittens är genomgångna
+
+Active booking:
+
+- visa tydlig action `Registrera återlämning`
+- visa faktisk utlämningstid
+- visa planerad återlämningsdag
+- visa om uthyrningen verkar sen baserat på faktisk dag och planerat slutdatum
+
+Formulär för `Registrera återlämning` bör innehålla:
+
+- faktisk återlämningstid, förifylld med nu
+- skick vid återlämning
+- markering för avvikelse/skada
+- intern kommentar
+- deposition återbetald eller innehållen, om deposition finns
+
+Completed booking:
+
+- visa immutable genomförandehistorik
+- visa faktisk utlämning och återlämning
+- visa condition snapshots
+- visa avvikelsemarkering och intern kommentar endast för behörig admin
+- visa audit-/historiklänkar när sådana vyer finns
+
+Kundvy:
+
+- kunden kan senare se att bokningen är godkänd, pågår eller avslutad
+- interna condition notes, damage notes och auditdata ska inte visas publikt utan separat beslut
+
+Ingen PDF, digital signering, betalningsintegration eller skadeärende-UI ingår i första designen.
+
+---
+
 # Kalenderblockeringar
 
 Administratören kan:

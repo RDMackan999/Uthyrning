@@ -1214,6 +1214,226 @@ Risker:
 - Inklusiva kalenderdagar är enkla för användaren men hindrar byte samma dag. Det är ett medvetet säkerhetsval för att undvika dubbelbokning innan upphämtning/återlämning har tidsstöd.
 - Gästbokning förenklar MVP men kräver tydlig GDPR-retention och validering så att kunddata inte dupliceras okontrollerat.
 
+#### Sprint 9A: Rental Fulfillment Design
+
+Rental fulfillment beskriver genomförandet efter att en bokning har godkänts: utlämning, pågående uthyrning, återlämning och avslut. Fulfillment ska bygga vidare på `bookings`, `booking_items`, statushistorik och snapshots. Det får inte skapa en parallell bokningsmodell eller en parallell availability-källa.
+
+Version 1 använder befintliga bokningsstatusar:
+
+- `approved`: bokningen är godkänd och objektet är reserverat, men inget objekt är utlämnat.
+- `active`: objektet är utlämnat och uthyrningen pågår.
+- `completed`: objektet är återlämnat och uthyrningen är avslutad.
+
+Statusarna räcker för Version 1. Nya booking-statusar ska inte införas för utlämning eller återlämning innan ett tydligt affärsbehov finns.
+
+Alternativ för modellering:
+
+1. Extra fält direkt på `bookings`.
+   Fördel: enklast för ett enda objekt och ett enda flöde. Nackdel: blandar planerad bokning med faktisk genomförandehistorik och blir svagt när flera `booking_items`, skick och avvikelser behövs.
+
+2. Separat `rental_fulfillments`.
+   Fördel: separerar planned booking från actual execution och kan hålla faktiska tider, aktörer, deposition och kvittensdata. Nackdel: behöver kompletteras för item-specifika skick.
+
+3. Separata handover- och return-events.
+   Fördel: stark historik och kan stödja flera delhändelser. Nackdel: mer komplexitet än Version 1 behöver och riskerar att bli en generell eventmotor för tidigt.
+
+4. Kombination av fulfillment-huvudrad och item-rader.
+   Fördel: håller bokningsnivå och item-nivå separerade, bevarar snapshots och stödjer flera objekt senare. Nackdel: något fler tabeller än absolut minimum.
+
+Rekommendation: använd kombinationen med `rental_fulfillments` och `rental_fulfillment_items`.
+
+- `rental_fulfillments` har en rad per bokning och beskriver genomförandet på bokningsnivå.
+- `rental_fulfillment_items` har en rad per `booking_items`-rad och bevarar skick, kommentarer och avvikelse per uthyrt objekt.
+- Version 1 skapar normalt en fulfillment item-rad eftersom bokningsflödet bara tillåter ett objekt, men modellen blockerar inte flera objekt senare.
+
+Rekommenderade tabeller:
+
+- `rental_fulfillments`
+- `rental_fulfillment_items`
+
+Rekommenderade fält för `rental_fulfillments`:
+
+- `id`
+- `public_id`
+- `organization_id`
+- `booking_id`
+- `planned_start_date`
+- `planned_end_date`
+- `actual_handover_at` nullable
+- `actual_return_at` nullable
+- `handed_over_by_user_id` nullable
+- `returned_to_user_id` nullable
+- `received_by_name` nullable
+- `handover_note` nullable
+- `return_note` nullable
+- `deposit_required_amount` nullable
+- `deposit_received_amount` nullable
+- `deposit_returned_amount` nullable
+- `deposit_retained_amount` nullable
+- `deposit_status_key`
+- `terms_version_key` nullable
+- `agreement_id` nullable
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Rekommenderade fält för `rental_fulfillment_items`:
+
+- `id`
+- `rental_fulfillment_id`
+- `booking_item_id`
+- `rental_item_id`
+- `item_name_snapshot`
+- `item_public_id_snapshot`
+- `handover_condition_key` nullable
+- `handover_condition_note` nullable
+- `return_condition_key` nullable
+- `return_condition_note` nullable
+- `has_return_deviation`
+- `damage_note` nullable
+- `meter_value_handover` nullable
+- `meter_value_return` nullable
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Condition i Version 1:
+
+- Skick ska dokumenteras som snapshot på fulfillment item, inte läsas live från `rental_items`.
+- Rekommenderade enkla nycklar är `good`, `acceptable` och `damaged`.
+- Nycklarna ska inte vara ENUM. De kan senare flyttas till `item_condition_grades` eller status-/konfigurationstabell om admin behöver styra dem.
+- Historiska uthyrningar får inte ändras när objektets aktuella skick senare uppdateras.
+
+Utlämning, `approved` -> `active`:
+
+1. Kontrollera att bokningen tillhör actorns tillåtna organisation eller att actor är `system_admin`.
+2. Kontrollera att bokningen har status `approved`.
+3. Kontrollera att `booking_items` finns och tillhör samma `organization_id`.
+4. Skapa eller hämta fulfillment-huvudrad för bokningen.
+5. Spara faktisk utlämningstid i UTC.
+6. Spara `handed_over_by_user_id`.
+7. Spara mottagande kundnamn eller referens som minimalt kvittensunderlag.
+8. Spara condition snapshot per booking item.
+9. Spara deposition som affärsdata om den mottas manuellt.
+10. Koppla eventuell avtals-/kvittensreferens om sådan finns.
+11. Lägg till `booking_status_history`.
+12. Sätt booking status till `active`.
+13. Skapa audit event `rental_handover_recorded` och behåll befintlig `booking_started`-audit när status ändras.
+
+Operationen ska senare implementeras atomiskt i en transaktion.
+
+Återlämning, `active` -> `completed`:
+
+1. Kontrollera organization-scope mot bokningen.
+2. Kontrollera att bokningen har status `active`.
+3. Spara faktisk återlämningstid i UTC.
+4. Spara `returned_to_user_id`.
+5. Spara return condition snapshot per booking item.
+6. Markera om avvikelse/skada finns och spara intern kommentar.
+7. Spara depositionens manuella utfall om den återbetalas eller hålls inne helt/delvis.
+8. Lägg till `booking_status_history`.
+9. Sätt booking status till `completed`.
+10. Skapa audit event `rental_return_recorded` och behåll befintlig `booking_completed`-audit när status ändras.
+
+Availability ska fortsatt styras av bokningens status och befintliga datumregler. Fulfillment får inte skapa egen kalenderlogik.
+
+Planned vs actual:
+
+- `bookings.start_date` och `bookings.end_date` är planerade kalenderdatum.
+- `rental_fulfillments.actual_handover_at` och `actual_return_at` är faktiska tidpunkter i UTC.
+- Historik och adminvy ska kunna visa om faktisk utlämning eller återlämning avviker från planerad period.
+- För sen återlämning identifieras i Version 1 genom att faktisk lokal återlämningsdag är efter `bookings.end_date`.
+- För tidig återlämning identifieras genom att faktisk lokal återlämningsdag är före `bookings.end_date`.
+
+Tidig och sen återlämning i Version 1:
+
+- Tidig återlämning får slutföra bokningen. Eftersom `completed` inte blockerar kalendern frigörs återstående planerade dagar enligt befintlig availability-regel. Om uthyraren vill behålla buffert eller kontrolltid ska en manuell `blocked_period` användas.
+- Sen återlämning ger ingen automatisk avgift i Version 1. Om objektet behöver blockeras efter planerat slutdatum ska administratör använda manuell blockering tills en separat sen-retur- eller förlängningssprint finns.
+- Automatisk förseningsavgift, automatisk förlängning och konfliktlösning mot framtida bokningar skjuts upp.
+
+Avtal och kvittens:
+
+- Version 1 ska inte kräva digital signering.
+- Rekommenderad V1-lösning är att admin markerar utlämning med en enkel bekräftelse och sparar fulfillment data som kvittensunderlag.
+- Framtida avtal ska baseras på snapshots: booking reference, organisation/uthyrare, customer snapshot, booking items, planerad hyresperiod, price snapshot, depositionssnapshot, terms version och handover information.
+- Avtal bör ha eget `public_id` och vara immutable efter utlämning.
+- `terms_version_key` eller referens till immutable `agreement_templates`/villkorsversion ska sparas så att gamla avtal inte ändras när villkoren uppdateras.
+- PDF-generation, BankID-signering och extern dokumentlagring skjuts upp.
+
+Deposition:
+
+- Bokningen har redan depositionssnapshot. Fulfillment ska kunna spara operativt utfall: krävd, mottagen, återbetald och innehållen deposition.
+- Rekommenderade `deposit_status_key`-värden för Version 1 är `not_required`, `required`, `received`, `returned`, `partially_retained` och `retained`.
+- Dessa nycklar ska inte vara ENUM och ska inte tolkas som full betalningsmotor.
+- Ingen Swish-, Fortnox- eller betalningsintegration ingår.
+
+Skador och avvikelser:
+
+- Version 1 ska endast markera `has_return_deviation` och intern `damage_note`.
+- Skadeärenden, bilder, försäkring, självrisk, kostnadsberäkning, serviceorder och fakturering skjuts upp.
+- Om skada kräver att objektet inte kan hyras ut ska administratör hantera detta via objektstatus, service eller manuell blockering enligt befintliga domäner när de finns.
+
+Relationer och index:
+
+- `rental_fulfillments.organization_id` -> `organizations.id`
+- `rental_fulfillments.booking_id` -> `bookings.id`
+- `rental_fulfillments.handed_over_by_user_id` -> `users.id`
+- `rental_fulfillments.returned_to_user_id` -> `users.id`
+- `rental_fulfillments.agreement_id` -> `agreements.id` nullable när avtalstabell finns
+- `rental_fulfillment_items.rental_fulfillment_id` -> `rental_fulfillments.id`
+- `rental_fulfillment_items.booking_item_id` -> `booking_items.id`
+- `rental_fulfillment_items.rental_item_id` -> `rental_items.id`
+- Unikt index på `rental_fulfillments(booking_id)`.
+- Unikt index på `rental_fulfillment_items(rental_fulfillment_id, booking_item_id)`.
+- Index på `rental_fulfillments(organization_id, actual_handover_at)` och `rental_fulfillments(organization_id, actual_return_at)`.
+
+Audit events:
+
+- `rental_handover_recorded`
+- `rental_return_recorded`
+- `rental_damage_reported` senare när skadeflöde byggs
+- `rental_deposit_status_changed` senare när deposition får eget flöde
+
+Notifieringar:
+
+- V1 kan senare notifiera kund vid utlämning och återlämning, men första fulfillment-implementationen behöver inte skicka e-post.
+- Om notifiering införs ska den följa notifieringsmodellen: domänhändelse först, sedan idempotent notifiering utan att statusändringen rullas tillbaka.
+
+Organization authorization:
+
+- Fulfillment är organisation-scopad via `bookings.organization_id`.
+- `organization_admin` får endast registrera utlämning och återlämning inom sina organisationer.
+- `system_admin` följer global policy.
+- Cross-tenant-resurser ska nekas utan att avslöja om bokningen finns.
+
+Sprint 9B scope:
+
+- Migration enligt denna design.
+- Modeller och repositories för `rental_fulfillments` och `rental_fulfillment_items`.
+- `RentalFulfillmentService`.
+- Handover och return som service-metoder.
+- Condition snapshots.
+- Integration med befintlig booking status transition och status history.
+- Audit events.
+- Tester för statusövergångar, snapshots, multi-item-förberedelse, organization-scope och planned vs actual.
+- Minimal admin-UI bör vänta till Sprint 9C om Sprint 9B blir stor. Rekommendationen är att Sprint 9B bygger databas, modeller, service och tester först.
+
+Uppskjutna funktioner:
+
+- PDF-avtal
+- digital signering
+- BankID-signering
+- Swish
+- Fortnox
+- betalningsmotor
+- automatisk förseningsavgift
+- skadeärenden
+- skadebilder
+- försäkring
+- serviceorder
+- IoT/GPS
+- Kivra
+
 ### Kalender
 
 Rekommenderad källa till sanning för Version 1:
@@ -1685,6 +1905,8 @@ Bokningar och kalender:
 - `booking_customer_snapshots`
 - `booking_price_snapshots`
 - `booking_notes`
+- `rental_fulfillments`
+- `rental_fulfillment_items`
 - `availability_rules`
 - `availability_exceptions`
 - `calendar_events`
@@ -1776,6 +1998,7 @@ Organizations
  |        +--- BookingStatusHistory
  |        +--- BookingCustomerSnapshots
  |        +--- BookingPriceSnapshots
+ |        +--- RentalFulfillments --- RentalFulfillmentItems --- BookingItems
  |        +--- Agreements --- AgreementStatusHistory
  |        +--- Payments --- PaymentStatusHistory
  |        +--- Notifications --- NotificationAttempts
@@ -1885,7 +2108,7 @@ Det är lockande att bygga en extremt flexibel modell för framtida AI, IoT, API
 - Behövs objektvarianter eller räcker en rad per fysisk utrustning?
 - Ska tillbehör hyras separat eller bara följa med ett objekt?
 - Ska pris kunna variera över tid?
-- Behövs deposition i Version 1?
+- Sprint 9A har beslutat att deposition ska stödjas som snapshot och manuell fulfillment-affärsdata i Version 1, men inte som betalningsintegration.
 
 ### Kategorier
 
@@ -1898,11 +2121,11 @@ Det är lockande att bygga en extremt flexibel modell för framtida AI, IoT, API
 
 ### Bokningar och kalender
 
-- Är uthyrning alltid per dag eller kan tid på dagen behövas?
-- Hur hanteras hämtning och återlämning?
-- Ska bokningsförfrågan kunna omfatta flera objekt?
-- Vilka bokningsstatusar behövs i Version 1?
-- Ska objekt blockeras direkt vid förfrågan eller först vid godkännande?
+- Sprint 5A har beslutat att Version 1 bokar per kalenderdag med inklusiva `start_date` och `end_date`.
+- Sprint 9A har beslutat att faktisk utlämning och återlämning hanteras som fulfillment-tidpunkter separat från planerade bokningsdatum.
+- Sprint 5A har beslutat att publik Version 1 skapar en `booking_items`-rad, men modellen förbereder flera objekt per bokning.
+- Sprint 5A och 9A har beslutat att statusarna är `request`, `approved`, `rejected`, `cancelled`, `active` och `completed`.
+- Sprint 5A har beslutat att `request`, `approved` och `active` blockerar kalendern.
 
 ### Avtal och dokument
 
