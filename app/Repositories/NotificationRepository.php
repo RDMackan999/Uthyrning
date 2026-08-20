@@ -93,7 +93,7 @@ final class NotificationRepository extends BaseRepository
      *
      * @return list<array<string, mixed>>
      */
-    public function findAllForAdmin(?string $statusKey = null, ?string $eventKey = null, ?int $organizationId = null): array
+    public function findAllForAdmin(?string $statusKey = null, ?string $eventKey = null, ?array $organizationIds = null): array
     {
         $sql = $this->adminSelectSql() . '
              WHERE 1 = 1';
@@ -109,10 +109,7 @@ final class NotificationRepository extends BaseRepository
             $parameters['event_key'] = $eventKey;
         }
 
-        if ($organizationId !== null) {
-            $sql .= ' AND notifications.organization_id = :organization_id';
-            $parameters['organization_id'] = $organizationId;
-        }
+        $sql .= ' ' . $this->organizationScopeSql($organizationIds, 'notifications.organization_id', $parameters);
 
         $sql .= ' ORDER BY notifications.created_at DESC, notifications.id DESC';
 
@@ -393,19 +390,21 @@ final class NotificationRepository extends BaseRepository
              INNER JOIN users
                 ON users.id = user_roles.user_id
              WHERE user_roles.organization_id = :organization_id
-                AND roles.role_key IN (:owner_role, :staff_role)
-                AND roles.status_key = :status_key
+                AND roles.role_key IN (:admin_role, :owner_role, :staff_role)
+                AND roles.status_key = :role_status_key
                 AND roles.deleted_at IS NULL
-                AND users.status_key = :status_key
+                AND users.status_key = :user_status_key
                 AND users.deleted_at IS NULL
              ORDER BY roles.role_key ASC, users.id ASC
              LIMIT 1'
         );
         $statement->execute([
             'organization_id' => $organizationId,
+            'admin_role' => 'organization_admin',
             'owner_role' => 'organization_owner',
             'staff_role' => 'organization_staff',
-            'status_key' => 'active',
+            'role_status_key' => 'active',
+            'user_status_key' => 'active',
         ]);
 
         $email = $this->nullableString($statement->fetchColumn());
@@ -598,5 +597,35 @@ final class NotificationRepository extends BaseRepository
         $maxAttempts = (int) $value;
 
         return max(1, min(3, $maxAttempts));
+    }
+
+    /**
+     * @param list<int>|null $organizationIds
+     * @param array<string, mixed> $params
+     */
+    private function organizationScopeSql(?array $organizationIds, string $column, array &$params): string
+    {
+        if ($organizationIds === null) {
+            return '';
+        }
+
+        $ids = array_values(array_filter(
+            array_unique(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if ($ids === []) {
+            return 'AND 1 = 0';
+        }
+
+        $placeholders = [];
+
+        foreach ($ids as $index => $organizationId) {
+            $name = 'scope_organization_id_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $organizationId;
+        }
+
+        return 'AND ' . $column . ' IN (' . implode(', ', $placeholders) . ')';
     }
 }

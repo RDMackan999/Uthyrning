@@ -2,6 +2,7 @@
 
 $displayName = is_string($displayName ?? null) && $displayName !== '' ? $displayName : 'okänd användare';
 $email = is_string($email ?? null) ? $email : '';
+$authorizationLabel = is_string($authorizationLabel ?? null) ? $authorizationLabel : 'unknown';
 
 $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 ?>
@@ -18,7 +19,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
         <div class="status-box">
             <strong>Authorization</strong>
-            <div>system_admin</div>
+            <div><?= $escape($authorizationLabel) ?></div>
         </div>
     </div>
 

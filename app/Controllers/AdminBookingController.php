@@ -14,6 +14,7 @@ use App\Models\Booking;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
 use App\Services\BookingStatusService;
+use App\Services\OrganizationAuthorizationService;
 use Throwable;
 
 /**
@@ -32,6 +33,7 @@ final class AdminBookingController extends BaseController
         private readonly BookingRepository $bookingRepository = new BookingRepository(),
         private readonly BookingItemRepository $bookingItemRepository = new BookingItemRepository(),
         private readonly BookingStatusService $bookingStatusService = new BookingStatusService(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -49,7 +51,8 @@ final class AdminBookingController extends BaseController
         return new self(
             $bookingRepository,
             new BookingItemRepository(),
-            new BookingStatusService($bookingRepository)
+            new BookingStatusService($bookingRepository),
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -62,7 +65,9 @@ final class AdminBookingController extends BaseController
 
         return $this->viewWithLayout('admin/bookings/index', 'layouts/admin', [
             'pageTitle' => 'Bokningar',
-            'bookings' => $this->bookingRepository->findAllForAdmin($statusFilter)->toArray(),
+            'bookings' => $this->bookingRepository
+                ->findAllForAdmin($statusFilter, $this->authorizationService->organizationScopeForRequest($request))
+                ->toArray(),
             'statusFilter' => $statusFilter,
             'statusOptions' => $this->statusOptions(),
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
@@ -181,6 +186,15 @@ final class AdminBookingController extends BaseController
         if ($booking === null) {
             throw new NotFoundException();
         }
+
+        $bookingData = $booking->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($bookingData['organization_id'] ?? 0),
+            'booking',
+            (int) ($bookingData['id'] ?? 0),
+            'manage'
+        );
 
         return $booking;
     }

@@ -14,6 +14,7 @@ use App\Models\RentalItem;
 use App\Repositories\CategoryRepository;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\RentalItemRepository;
+use App\Services\OrganizationAuthorizationService;
 use App\Services\RentalItemPublicationService;
 use Throwable;
 
@@ -30,6 +31,7 @@ final class RentalItemController extends BaseController
         private readonly CategoryRepository $categoryRepository = new CategoryRepository(),
         private readonly RentalItemFormRequest $formRequest = new RentalItemFormRequest(),
         private readonly RentalItemPublicationService $publicationService = new RentalItemPublicationService(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -49,7 +51,8 @@ final class RentalItemController extends BaseController
             new OrganizationRepository(),
             new CategoryRepository(),
             new RentalItemFormRequest($rentalItemRepository),
-            new RentalItemPublicationService($rentalItemRepository)
+            new RentalItemPublicationService($rentalItemRepository),
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -60,7 +63,9 @@ final class RentalItemController extends BaseController
     {
         return $this->viewWithLayout('admin/items/index', 'layouts/admin', [
             'pageTitle' => 'Objekt',
-            'items' => $this->rentalItemRepository->findAllForAdmin()->toArray(),
+            'items' => $this->rentalItemRepository
+                ->findAllForAdmin($this->authorizationService->organizationScopeForRequest($request))
+                ->toArray(),
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
             'message' => $request->query('archived') === '1' ? 'Objektet har arkiverats.' : null,
         ]);
@@ -92,6 +97,13 @@ final class RentalItemController extends BaseController
         if ($validated['errors'] !== []) {
             return $this->renderCreate($request, $validated['data'], $validated['errors']);
         }
+
+        $this->authorizationService->assertCanAccessOrganization(
+            $request,
+            (int) ($validated['data']['organization_id'] ?? 0),
+            'create',
+            'rental_item'
+        );
 
         try {
             $item = $this->rentalItemRepository->create($validated['data']);
@@ -140,6 +152,14 @@ final class RentalItemController extends BaseController
             return $this->renderEdit($request, $item, $validated['data'], $validated['errors']);
         }
 
+        $this->authorizationService->assertCanAccessOrganization(
+            $request,
+            (int) ($validated['data']['organization_id'] ?? 0),
+            'update',
+            'rental_item',
+            (int) ($item->toArray()['id'] ?? 0)
+        );
+
         try {
             $updated = $this->rentalItemRepository->update((int) $item->toArray()['id'], $validated['data']);
         } catch (Throwable) {
@@ -156,6 +176,15 @@ final class RentalItemController extends BaseController
      */
     private function handlePublicationAction(Request $request, RentalItem $item, string $action): Response
     {
+        $itemData = $item->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'rental_item',
+            (int) ($itemData['id'] ?? 0),
+            $action
+        );
+
         try {
             if ($action === 'publish') {
                 $updated = $this->publicationService->publish($item);
@@ -221,7 +250,9 @@ final class RentalItemController extends BaseController
      */
     private function formViewData(Request $request, array $data, array $errors): array
     {
-        $organizations = $this->organizationRepository->findAllActive()->toArray();
+        $organizations = $this->organizationRepository
+            ->findAllActive($this->authorizationService->organizationScopeForRequest($request))
+            ->toArray();
         $selectedOrganizationId = $this->selectedOrganizationId($data, $organizations);
 
         if ($selectedOrganizationId !== null && !is_numeric($data['organization_id'] ?? null)) {
@@ -255,6 +286,15 @@ final class RentalItemController extends BaseController
         if ($item === null) {
             throw new NotFoundException();
         }
+
+        $itemData = $item->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'rental_item',
+            (int) ($itemData['id'] ?? 0),
+            'view'
+        );
 
         return $item;
     }

@@ -16,6 +16,7 @@ use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\RentalItemRepository;
 use App\Services\AuditService;
 use App\Services\BookingAvailabilityService;
+use App\Services\OrganizationAuthorizationService;
 use DateTimeImmutable;
 use Throwable;
 
@@ -31,6 +32,7 @@ final class AdminAvailabilityBlockController extends BaseController
         private readonly ItemAvailabilityBlockRepository $availabilityBlockRepository = new ItemAvailabilityBlockRepository(),
         private readonly BookingAvailabilityService $availabilityService = new BookingAvailabilityService(),
         private readonly AuditService $auditService = new AuditService(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -48,7 +50,9 @@ final class AdminAvailabilityBlockController extends BaseController
         return new self(
             new RentalItemRepository(),
             $availabilityBlockRepository,
-            new BookingAvailabilityService(availabilityBlockRepository: $availabilityBlockRepository)
+            new BookingAvailabilityService(availabilityBlockRepository: $availabilityBlockRepository),
+            new AuditService(),
+            new OrganizationAuthorizationService()
         );
     }
 
@@ -258,6 +262,15 @@ final class AdminAvailabilityBlockController extends BaseController
             throw new NotFoundException();
         }
 
+        $itemData = $item->toArray();
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'rental_item',
+            (int) ($itemData['id'] ?? 0),
+            'manage_availability'
+        );
+
         return $item;
     }
 
@@ -275,7 +288,7 @@ final class AdminAvailabilityBlockController extends BaseController
         $itemData = $item->toArray();
 
         try {
-            return $this->availabilityBlockRepository->findByIdForItem(
+            $block = $this->availabilityBlockRepository->findByIdForItem(
                 (int) ($itemData['organization_id'] ?? 0),
                 (int) ($itemData['id'] ?? 0),
                 (int) $blockId
@@ -283,6 +296,16 @@ final class AdminAvailabilityBlockController extends BaseController
         } catch (ModelException) {
             throw new NotFoundException();
         }
+
+        $this->authorizationService->assertCanAccessResource(
+            $request,
+            (int) ($itemData['organization_id'] ?? 0),
+            'blocked_period',
+            (int) ($block->toArray()['id'] ?? 0),
+            'archive'
+        );
+
+        return $block;
     }
 
     /**

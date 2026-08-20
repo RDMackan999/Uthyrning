@@ -126,7 +126,7 @@ final class BookingRepository extends BaseRepository
      *
      * @return Collection<Booking>
      */
-    public function findAllForAdmin(?string $statusKey = null): Collection
+    public function findAllForAdmin(?string $statusKey = null, ?array $organizationIds = null): Collection
     {
         $params = [];
         $where = 'WHERE bookings.deleted_at IS NULL';
@@ -136,6 +136,8 @@ final class BookingRepository extends BaseRepository
             $where .= ' AND bookings.status_key = :status_key';
             $params['status_key'] = $normalizedStatusKey;
         }
+
+        $where .= ' ' . $this->organizationScopeSql($organizationIds, 'bookings.organization_id', $params);
 
         $statement = Database::pdo()->prepare(
             $this->adminSelectSql() . '
@@ -702,5 +704,35 @@ final class BookingRepository extends BaseRepository
         }
 
         return number_format((float) $value, 2, '.', '');
+    }
+
+    /**
+     * @param list<int>|null $organizationIds
+     * @param array<string, mixed> $params
+     */
+    private function organizationScopeSql(?array $organizationIds, string $column, array &$params): string
+    {
+        if ($organizationIds === null) {
+            return '';
+        }
+
+        $ids = array_values(array_filter(
+            array_unique(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if ($ids === []) {
+            return 'AND 1 = 0';
+        }
+
+        $placeholders = [];
+
+        foreach ($ids as $index => $organizationId) {
+            $name = 'scope_organization_id_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $organizationId;
+        }
+
+        return 'AND ' . $column . ' IN (' . implode(', ', $placeholders) . ')';
     }
 }

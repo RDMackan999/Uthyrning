@@ -123,8 +123,11 @@ final class RentalItemRepository extends BaseRepository
      *
      * @return Collection<RentalItem>
      */
-    public function findAllForAdmin(): Collection
+    public function findAllForAdmin(?array $organizationIds = null): Collection
     {
+        $params = [];
+        $scopeSql = $this->organizationScopeSql($organizationIds, 'rental_items.organization_id', $params);
+
         $statement = Database::pdo()->prepare(
             'SELECT rental_items.*,
                 organizations.name AS organization_name,
@@ -135,9 +138,10 @@ final class RentalItemRepository extends BaseRepository
              INNER JOIN item_categories
                 ON item_categories.id = rental_items.primary_category_id
              WHERE rental_items.deleted_at IS NULL
+                ' . $scopeSql . '
              ORDER BY rental_items.created_at DESC, rental_items.id DESC'
         );
-        $statement->execute();
+        $statement->execute($params);
 
         return $this->itemsFromRows($statement->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -727,5 +731,35 @@ final class RentalItemRepository extends BaseRepository
             'vat_rate', 'deposit_amount' => $this->nullableDecimal($value),
             default => $value,
         };
+    }
+
+    /**
+     * @param list<int>|null $organizationIds
+     * @param array<string, mixed> $params
+     */
+    private function organizationScopeSql(?array $organizationIds, string $column, array &$params): string
+    {
+        if ($organizationIds === null) {
+            return '';
+        }
+
+        $ids = array_values(array_filter(
+            array_unique(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)),
+            static fn (int $id): bool => $id > 0
+        ));
+
+        if ($ids === []) {
+            return 'AND 1 = 0';
+        }
+
+        $placeholders = [];
+
+        foreach ($ids as $index => $organizationId) {
+            $name = 'scope_organization_id_' . $index;
+            $placeholders[] = ':' . $name;
+            $params[$name] = $organizationId;
+        }
+
+        return 'AND ' . $column . ' IN (' . implode(', ', $placeholders) . ')';
     }
 }

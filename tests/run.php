@@ -49,6 +49,7 @@ use App\Services\Email\SmtpEmailTransport;
 use App\Services\NotificationDispatcher;
 use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
+use App\Services\OrganizationAuthorizationService;
 use App\Services\RentalItemPublicationService;
 use App\Services\SessionService;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -381,9 +382,10 @@ function requestWithValidCsrfAndSession(string $method, string $uri, string $ses
 }
 
 /**
+ * @param list<int> $organizationAdminIds
  * @return array{user_id: int, token: string}
  */
-function createAuthenticatedTestUser(bool $isSystemAdmin): array
+function createAuthenticatedTestUser(bool $isSystemAdmin, array $organizationAdminIds = []): array
 {
     $suffix = bin2hex(random_bytes(4));
     $user = (new UserRepository())->createLocalUser(
@@ -398,6 +400,17 @@ function createAuthenticatedTestUser(bool $isSystemAdmin): array
         $role = (new RoleRepository())->findSystemAdminRole();
         assertNotNull($role, 'System admin role should exist.');
         (new RoleRepository())->assignToUser($userId, (int) ($role->toArray()['id'] ?? 0));
+    }
+
+    if ($organizationAdminIds !== []) {
+        $roleRepository = new RoleRepository();
+        $role = $roleRepository->findOrganizationAdminRole();
+        assertNotNull($role, 'Organization admin role should exist.');
+        $roleId = (int) ($role->toArray()['id'] ?? 0);
+
+        foreach ($organizationAdminIds as $organizationId) {
+            $roleRepository->assignToUser($userId, $roleId, $organizationId);
+        }
     }
 
     $session = (new SessionService())->createSession($userId, '127.0.0.1', 'Uthyrning test runner');
@@ -5148,6 +5161,374 @@ $runner->test('admin notification operations enforce access, privacy, retry, aud
             . rawurlencode((string) ($publicItemData['slug'] ?? ''))
             . '/book';
         assertSame(200, $router->dispatch(new Request('GET', $publicFormPath))->statusCode(), 'Public booking flow should continue to work.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
+$runner->test('organization scoped authorization protects admin resources', static function () use (
+    $basePath,
+    $repository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService
+): void {
+    $pdo = pdo();
+    $rentalItemRepository = new RentalItemRepository();
+    $itemRateRepository = new ItemRateRepository();
+    $customerRepository = new CustomerRepository();
+    $notificationRepository = new NotificationRepository();
+    $bookingService = new BookingService(
+        $bookingRepository,
+        $bookingItemRepository,
+        $rentalItemRepository,
+        $bookingAvailabilityService,
+        $bookingPricingService
+    );
+
+    $pdo->beginTransaction();
+
+    try {
+        $suffix = bin2hex(random_bytes(4));
+        $organizationAId = createOrganization('Authorization A ' . $suffix, 'authorization-a-' . $suffix);
+        $organizationBId = createOrganization('Authorization B ' . $suffix, 'authorization-b-' . $suffix);
+        setOrganizationEmail($organizationAId, 'authorization-admin-a-' . $suffix . '@example.com');
+        setOrganizationEmail($organizationBId, 'authorization-admin-b-' . $suffix . '@example.com');
+        $companyAId = createCompany($organizationAId, 'Authorization Company A ' . $suffix);
+        $companyBId = createCompany($organizationBId, 'Authorization Company B ' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for authorization tests.');
+        $categoryId = (int) ($globalCategory->toArray()['id'] ?? 0);
+
+        $itemA = createBookableRentalItem(
+            $organizationAId,
+            $categoryId,
+            'authorization-item-a-' . $suffix,
+            'Authorization Item A ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemB = createBookableRentalItem(
+            $organizationBId,
+            $categoryId,
+            'authorization-item-b-' . $suffix,
+            'Authorization Item B ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemAData = $itemA->toArray();
+        $itemBData = $itemB->toArray();
+
+        $bookingA = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemAData['id'] ?? 0),
+            'start_date' => '2036-01-10',
+            'end_date' => '2036-01-10',
+            'customer_name' => 'Authorization Customer A ' . $suffix,
+            'customer_email' => 'authorization-a-' . $suffix . '@example.com',
+            'customer_phone' => '070-810 00 10',
+            'company_id' => $companyAId,
+        ]);
+        $bookingB = $bookingService->createRequest([
+            'rental_item_id' => (int) ($itemBData['id'] ?? 0),
+            'start_date' => '2036-01-11',
+            'end_date' => '2036-01-11',
+            'customer_name' => 'Authorization Customer B ' . $suffix,
+            'customer_email' => 'authorization-b-' . $suffix . '@example.com',
+            'customer_phone' => '070-810 00 11',
+            'company_id' => $companyBId,
+        ]);
+
+        $customerAId = (int) ($bookingA->toArray()['customer_id'] ?? 0);
+        $customerBId = (int) ($bookingB->toArray()['customer_id'] ?? 0);
+        $notificationA = notificationForBooking((int) ($bookingA->toArray()['id'] ?? 0), 'booking_created', 'admin');
+        $notificationB = notificationForBooking((int) ($bookingB->toArray()['id'] ?? 0), 'booking_created', 'admin');
+        $rateB = $itemRateRepository->findActiveDailyForItem($organizationBId, (int) ($itemBData['id'] ?? 0));
+
+        $availabilityBlockStatement = $pdo->prepare(
+            'INSERT INTO blocked_periods (
+                rental_item_id,
+                organization_id,
+                start_date,
+                end_date,
+                reason_code,
+                internal_note,
+                created_by_user_id,
+                created_at,
+                updated_at
+            ) VALUES (
+                :rental_item_id,
+                :organization_id,
+                :start_date,
+                :end_date,
+                :reason_code,
+                :internal_note,
+                NULL,
+                UTC_TIMESTAMP(),
+                UTC_TIMESTAMP()
+            )'
+        );
+        $availabilityBlockStatement->execute([
+            'rental_item_id' => (int) ($itemBData['id'] ?? 0),
+            'organization_id' => $organizationBId,
+            'start_date' => '2036-01-20',
+            'end_date' => '2036-01-21',
+            'reason_code' => 'manual',
+            'internal_note' => 'Cross tenant authorization fixture',
+        ]);
+        $blockBId = (int) $pdo->lastInsertId();
+
+        $systemAdminSession = createAuthenticatedTestUser(true);
+        $organizationAdminASession = createAuthenticatedTestUser(false, [$organizationAId]);
+        $organizationAdminBSession = createAuthenticatedTestUser(false, [$organizationBId]);
+        $organizationAdminBothSession = createAuthenticatedTestUser(false, [$organizationAId, $organizationBId]);
+        $normalUserSession = createAuthenticatedTestUser(false);
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $systemAdminCookies = ['uthyrning_session' => $systemAdminSession['token']];
+        $adminACookies = ['uthyrning_session' => $organizationAdminASession['token']];
+        $adminBCookies = ['uthyrning_session' => $organizationAdminBSession['token']];
+        $adminBothCookies = ['uthyrning_session' => $organizationAdminBothSession['token']];
+        $normalUserCookies = ['uthyrning_session' => $normalUserSession['token']];
+
+        $systemItemList = $router->dispatch(new Request('GET', '/admin/items', [], [], $systemAdminCookies, $server));
+        assertSame(200, $systemItemList->statusCode(), 'system_admin should list all admin items.');
+        assertTrue(str_contains($systemItemList->content(), 'Authorization Item A ' . $suffix), 'system_admin should see organization A item.');
+        assertTrue(str_contains($systemItemList->content(), 'Authorization Item B ' . $suffix), 'system_admin should see organization B item.');
+
+        $systemItemDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemAData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $systemAdminCookies,
+            $server
+        ));
+        assertSame(200, $systemItemDetail->statusCode(), 'system_admin should access organization A item detail.');
+
+        $adminAItemList = $router->dispatch(new Request('GET', '/admin/items', [], [], $adminACookies, $server));
+        assertSame(200, $adminAItemList->statusCode(), 'organization_admin should access admin item list.');
+        assertTrue(str_contains($adminAItemList->content(), 'Authorization Item A ' . $suffix), 'organization_admin A should see organization A item.');
+        assertFalse(str_contains($adminAItemList->content(), 'Authorization Item B ' . $suffix), 'organization_admin A should not see organization B item.');
+
+        $normalUserList = $router->dispatch(new Request('GET', '/admin/items', [], [], $normalUserCookies, $server));
+        assertSame(403, $normalUserList->statusCode(), 'Normal authenticated users should not pass admin route middleware.');
+
+        $adminBItemDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBItemDetail->statusCode(), 'organization_admin A should receive safe 404 for organization B item detail.');
+
+        $adminBItemAccess = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            $adminBCookies,
+            $server
+        ));
+        assertSame(200, $adminBItemAccess->statusCode(), 'organization_admin B should access organization B item detail.');
+
+        $adminBothItemList = $router->dispatch(new Request('GET', '/admin/items', [], [], $adminBothCookies, $server));
+        assertSame(200, $adminBothItemList->statusCode(), 'organization_admin for multiple organizations should access admin item list.');
+        assertTrue(str_contains($adminBothItemList->content(), 'Authorization Item A ' . $suffix), 'Multi-organization admin should see organization A item.');
+        assertTrue(str_contains($adminBothItemList->content(), 'Authorization Item B ' . $suffix), 'Multi-organization admin should see organization B item.');
+
+        $adminACreateOtherOrg = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/items',
+            $organizationAdminASession['token'],
+            [
+                'name' => 'Unauthorized Item ' . $suffix,
+                'short_name' => 'Unauthorized',
+                'slug' => 'unauthorized-item-' . $suffix,
+                'description' => 'Should not be created.',
+                'organization_id' => (string) $organizationBId,
+                'primary_category_id' => (string) $categoryId,
+                'is_active' => '1',
+                'is_rentable' => '1',
+            ]
+        ));
+        assertSame(404, $adminACreateOtherOrg->statusCode(), 'organization_admin A should not create items in organization B.');
+        assertSame(
+            null,
+            $rentalItemRepository->findBySlug($organizationBId, 'unauthorized-item-' . $suffix),
+            'Denied cross-tenant item create should not persist.'
+        );
+
+        $adminBRateResponse = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/rates',
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBRateResponse->statusCode(), 'organization_admin A should not access organization B item rates.');
+
+        $adminBRateEditResponse = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/rates/' . (int) ($rateB->toArray()['id'] ?? 0) . '/edit',
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBRateEditResponse->statusCode(), 'organization_admin A should not access organization B rate detail.');
+
+        $adminBAvailabilityResponse = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/availability',
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBAvailabilityResponse->statusCode(), 'organization_admin A should not access organization B availability.');
+
+        $adminBAvailabilityArchive = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/items/' . rawurlencode((string) ($itemBData['public_id'] ?? '')) . '/availability/' . $blockBId . '/archive',
+            $organizationAdminASession['token']
+        ));
+        assertSame(404, $adminBAvailabilityArchive->statusCode(), 'organization_admin A should not archive organization B availability blocks.');
+
+        $adminABookingList = $router->dispatch(new Request('GET', '/admin/bookings', [], [], $adminACookies, $server));
+        assertSame(200, $adminABookingList->statusCode(), 'organization_admin A should access booking list.');
+        assertTrue(str_contains($adminABookingList->content(), (string) ($bookingA->toArray()['public_id'] ?? '')), 'organization_admin A should see organization A booking.');
+        assertFalse(str_contains($adminABookingList->content(), (string) ($bookingB->toArray()['public_id'] ?? '')), 'organization_admin A should not see organization B booking.');
+
+        $adminBBookingDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode((string) ($bookingB->toArray()['public_id'] ?? '')),
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBBookingDetail->statusCode(), 'organization_admin A should receive safe 404 for organization B booking.');
+
+        $adminBBookingApprove = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode((string) ($bookingB->toArray()['public_id'] ?? '')) . '/approve',
+            $organizationAdminASession['token']
+        ));
+        assertSame(404, $adminBBookingApprove->statusCode(), 'organization_admin A should not approve organization B booking.');
+        assertSame(
+            'request',
+            $bookingRepository->findByPublicId((string) ($bookingB->toArray()['public_id'] ?? ''), $organizationBId)?->toArray()['status_key'] ?? null,
+            'Denied cross-tenant booking status write should not mutate status.'
+        );
+
+        $adminACustomerList = $router->dispatch(new Request('GET', '/admin/customers', [], [], $adminACookies, $server));
+        assertSame(200, $adminACustomerList->statusCode(), 'organization_admin A should access customer list.');
+        assertTrue(str_contains($adminACustomerList->content(), 'Authorization Customer A ' . $suffix), 'organization_admin A should see organization A customer.');
+        assertFalse(str_contains($adminACustomerList->content(), 'Authorization Customer B ' . $suffix), 'organization_admin A should not see organization B customer.');
+
+        $adminBCustomerDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/customers/' . $customerBId,
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBCustomerDetail->statusCode(), 'organization_admin A should receive safe 404 for organization B customer.');
+
+        $adminACustomerCrossCompany = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/customers/' . $customerAId,
+            $organizationAdminASession['token'],
+            [
+                'name' => 'Authorization Customer A Updated ' . $suffix,
+                'email' => 'authorization-a-updated-' . $suffix . '@example.com',
+                'phone' => '070-810 00 20',
+                'customer_type_key' => 'company',
+                'company_id' => (string) $companyBId,
+            ]
+        ));
+        assertSame(200, $adminACustomerCrossCompany->statusCode(), 'Cross-tenant company link should be rejected by form validation.');
+        assertFalse(
+            (int) ($customerRepository->findById($customerAId)->toArray()['company_id'] ?? 0) === $companyBId,
+            'Denied customer update should not link to another organization company.'
+        );
+
+        $adminANotificationList = $router->dispatch(new Request('GET', '/admin/notifications', [], [], $adminACookies, $server));
+        assertSame(200, $adminANotificationList->statusCode(), 'organization_admin A should access notification list.');
+        assertTrue(str_contains($adminANotificationList->content(), (string) ($notificationA->toArray()['public_id'] ?? '')), 'organization_admin A should see organization A notification.');
+        assertFalse(str_contains($adminANotificationList->content(), (string) ($notificationB->toArray()['public_id'] ?? '')), 'organization_admin A should not see organization B notification.');
+
+        $adminBNotificationDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/notifications/' . rawurlencode((string) ($notificationB->toArray()['public_id'] ?? '')),
+            [],
+            [],
+            $adminACookies,
+            $server
+        ));
+        assertSame(404, $adminBNotificationDetail->statusCode(), 'organization_admin A should receive safe 404 for organization B notification.');
+
+        $adminBNotificationRetry = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/notifications/' . rawurlencode((string) ($notificationB->toArray()['public_id'] ?? '')) . '/retry',
+            $organizationAdminASession['token']
+        ));
+        assertSame(404, $adminBNotificationRetry->statusCode(), 'organization_admin A should not retry organization B notifications.');
+
+        $authorizationService = new OrganizationAuthorizationService();
+        $systemAdminRequest = new Request('GET', '/', [], [], $systemAdminCookies, $server);
+        $systemAdminRequest->setAuthenticatedUserId($systemAdminSession['user_id']);
+        $adminARequest = new Request('GET', '/', [], [], $adminACookies, $server);
+        $adminARequest->setAuthenticatedUserId($organizationAdminASession['user_id']);
+
+        assertTrue($authorizationService->isSystemAdmin($systemAdminRequest), 'system_admin context should be global.');
+        assertTrue(
+            $authorizationService->canAccessOrganization($adminARequest, $organizationAId),
+            'organization_admin A should access organization A.'
+        );
+        assertFalse(
+            $authorizationService->canAccessOrganization($adminARequest, $organizationBId),
+            'organization_admin A should not access organization B.'
+        );
+
+        assertTrue(
+            auditCount('cross_tenant_access_denied', 'rental_item') >= 1,
+            'Cross-tenant rental item denial should be audited.'
+        );
+        assertTrue(
+            auditCount('cross_tenant_access_denied', 'booking') >= 1,
+            'Cross-tenant booking denial should be audited.'
+        );
+        assertTrue(
+            auditCount('cross_tenant_access_denied', 'customer') >= 1,
+            'Cross-tenant customer denial should be audited.'
+        );
+        assertTrue(
+            auditCount('cross_tenant_access_denied', 'notification') >= 1,
+            'Cross-tenant notification denial should be audited.'
+        );
+        assertTrue(
+            auditCount('system_admin_global_access', 'rental_item') >= 1,
+            'system_admin global resource access should be audited.'
+        );
 
         $pdo->rollBack();
     } catch (Throwable $exception) {

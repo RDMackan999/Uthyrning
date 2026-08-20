@@ -10,6 +10,7 @@ use App\Core\ModelException;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\UserRepository;
+use App\Services\OrganizationAuthorizationService;
 
 /**
  * Renders the minimal protected admin dashboard foundation.
@@ -20,6 +21,7 @@ final class AdminDashboardController extends BaseController
 
     public function __construct(
         private readonly UserRepository $userRepository = new UserRepository(),
+        private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
     ) {
         parent::__construct();
@@ -32,7 +34,7 @@ final class AdminDashboardController extends BaseController
      */
     public static function fromConfig(): self
     {
-        return new self(new UserRepository());
+        return new self(new UserRepository(), new OrganizationAuthorizationService());
     }
 
     /**
@@ -60,6 +62,7 @@ final class AdminDashboardController extends BaseController
             'pageTitle' => 'Admin',
             'displayName' => $displayName !== '' ? $displayName : $email,
             'email' => $email,
+            'authorizationLabel' => $this->authorizationLabel($request),
             'csrfToken' => $this->csrfTokenManager->generateToken($request),
         ]);
     }
@@ -85,5 +88,24 @@ final class AdminDashboardController extends BaseController
     private function stringValue(mixed $value): string
     {
         return is_string($value) ? trim($value) : '';
+    }
+
+    private function authorizationLabel(Request $request): string
+    {
+        $context = $this->authorizationService->contextForRequest($request);
+
+        if ($context === null) {
+            return 'unknown';
+        }
+
+        if ($context->hasSystemRole(OrganizationAuthorizationService::SYSTEM_ADMIN)) {
+            return OrganizationAuthorizationService::SYSTEM_ADMIN;
+        }
+
+        if ($context->hasAnyOrganizationRole(OrganizationAuthorizationService::ORGANIZATION_ADMIN)) {
+            return OrganizationAuthorizationService::ORGANIZATION_ADMIN;
+        }
+
+        return 'unknown';
     }
 }

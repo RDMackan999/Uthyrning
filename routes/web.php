@@ -32,9 +32,9 @@ return static function (Router $router): void {
     $rentalItemController = RentalItemController::fromConfig();
     $itemRateController = ItemRateController::fromConfig();
     $authenticationMiddleware = AuthenticationMiddleware::fromConfig();
-    $systemAdminMiddleware = [
+    $adminMiddleware = [
         $authenticationMiddleware,
-        new AuthorizationMiddleware(['system_admin']),
+        new AuthorizationMiddleware(['system_admin', 'organization_admin']),
     ];
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
@@ -66,157 +66,157 @@ return static function (Router $router): void {
     $router->get(
         '/admin',
         static fn (Request $request): Response => $adminDashboardController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/bookings',
         static fn (Request $request): Response => $adminBookingController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/bookings/{public_id}',
         static fn (Request $request): Response => $adminBookingController->show($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/bookings/{public_id}/approve',
         static fn (Request $request): Response => $adminBookingController->approve($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/bookings/{public_id}/reject',
         static fn (Request $request): Response => $adminBookingController->reject($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/bookings/{public_id}/cancel',
         static fn (Request $request): Response => $adminBookingController->cancel($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/bookings/{public_id}/start',
         static fn (Request $request): Response => $adminBookingController->start($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/bookings/{public_id}/complete',
         static fn (Request $request): Response => $adminBookingController->complete($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/notifications',
         static fn (Request $request): Response => $adminNotificationController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/notifications/{public_id}',
         static fn (Request $request): Response => $adminNotificationController->show($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/notifications/{public_id}/retry',
         static fn (Request $request): Response => $adminNotificationController->retry($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/customers',
         static fn (Request $request): Response => $adminCustomerController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/customers/{id}',
         static fn (Request $request): Response => $adminCustomerController->show($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/customers/{id}/edit',
         static fn (Request $request): Response => $adminCustomerController->edit($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/customers/{id}',
         static fn (Request $request): Response => $adminCustomerController->update($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/customers/{id}/status',
         static fn (Request $request): Response => $adminCustomerController->updateStatus($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items',
         static fn (Request $request): Response => $rentalItemController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/create',
         static fn (Request $request): Response => $rentalItemController->create($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items',
         static fn (Request $request): Response => $rentalItemController->store($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/edit',
         static fn (Request $request): Response => $rentalItemController->edit($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}',
         static fn (Request $request): Response => $rentalItemController->update($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/availability',
         static fn (Request $request): Response => $adminAvailabilityBlockController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/availability/create',
         static fn (Request $request): Response => $adminAvailabilityBlockController->create($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}/availability',
         static fn (Request $request): Response => $adminAvailabilityBlockController->store($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}/availability/{id}/archive',
         static fn (Request $request): Response => $adminAvailabilityBlockController->archive($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/rates',
         static fn (Request $request): Response => $itemRateController->index($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/rates/create',
         static fn (Request $request): Response => $itemRateController->create($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}/rates',
         static fn (Request $request): Response => $itemRateController->store($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->get(
         '/admin/items/{public_id}/rates/{id}/edit',
         static fn (Request $request): Response => $itemRateController->edit($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}/rates/{id}',
         static fn (Request $request): Response => $itemRateController->update($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
     $router->post(
         '/admin/items/{public_id}/rates/{id}/archive',
         static fn (Request $request): Response => $itemRateController->archive($request),
-        $systemAdminMiddleware
+        $adminMiddleware
     );
 
     $router->get('/health', static fn (): Response => Response::json([
