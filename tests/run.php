@@ -8,6 +8,7 @@ use App\Core\Config;
 use App\Core\Database;
 use App\Core\MigrationRunner;
 use App\Core\ModelException;
+use App\Core\NotFoundException;
 use App\Core\NotificationException;
 use App\Core\Request;
 use App\Core\Response;
@@ -25,6 +26,7 @@ use App\Models\ItemAvailabilityBlock;
 use App\Models\ItemRate;
 use App\Models\Notification;
 use App\Models\RentalItem;
+use App\Models\RentalFulfillmentItem;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
@@ -33,6 +35,8 @@ use App\Repositories\ItemAvailabilityBlockRepository;
 use App\Repositories\ItemRateRepository;
 use App\Repositories\NotificationAttemptRepository;
 use App\Repositories\NotificationRepository;
+use App\Repositories\RentalFulfillmentItemRepository;
+use App\Repositories\RentalFulfillmentRepository;
 use App\Repositories\RentalItemRepository;
 use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
@@ -51,6 +55,7 @@ use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
 use App\Services\OrganizationAdminAssignmentService;
 use App\Services\OrganizationAuthorizationService;
+use App\Services\RentalFulfillmentService;
 use App\Services\RentalItemPublicationService;
 use App\Services\SessionService;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -610,6 +615,9 @@ $availabilityCalendarService = new AvailabilityCalendarService();
 $bookingPricingService = new BookingPricingService();
 $bookingService = new BookingService();
 $bookingStatusService = new BookingStatusService();
+$rentalFulfillmentRepository = new RentalFulfillmentRepository();
+$rentalFulfillmentItemRepository = new RentalFulfillmentItemRepository();
+$rentalFulfillmentService = new RentalFulfillmentService();
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
@@ -728,6 +736,298 @@ $runner->test('migrations create notification foundation tables', static functio
     assertFalse(columnDataType('notifications', 'event_key') === 'enum', 'Notification events should not use ENUM.');
     assertFalse(columnDataType('notifications', 'status_key') === 'enum', 'Notification statuses should not use ENUM.');
     assertFalse(columnDataType('notification_attempts', 'status_key') === 'enum', 'Attempt statuses should not use ENUM.');
+});
+
+$runner->test('migrations create rental fulfillment foundation tables', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    assertTrue(tableExists('rental_fulfillments'), 'rental_fulfillments table should exist.');
+    assertTrue(tableExists('rental_fulfillment_items'), 'rental_fulfillment_items table should exist.');
+
+    foreach ([
+        'id',
+        'public_id',
+        'organization_id',
+        'booking_id',
+        'planned_start_date',
+        'planned_end_date',
+        'actual_handover_at',
+        'actual_return_at',
+        'handed_over_by_user_id',
+        'returned_to_user_id',
+        'received_by_name',
+        'handover_note',
+        'return_note',
+        'terms_version_key',
+        'deposit_required_amount',
+        'deposit_received_amount',
+        'deposit_returned_amount',
+        'deposit_retained_amount',
+        'deposit_status_key',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('rental_fulfillments'), true), $column . ' should exist on rental_fulfillments.');
+    }
+
+    foreach ([
+        'id',
+        'rental_fulfillment_id',
+        'booking_item_id',
+        'rental_item_id',
+        'item_public_id_snapshot',
+        'item_name_snapshot',
+        'handover_condition_key',
+        'handover_condition_note',
+        'return_condition_key',
+        'return_condition_note',
+        'has_return_deviation',
+        'damage_note',
+        'meter_value_handover',
+        'meter_value_return',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('rental_fulfillment_items'), true), $column . ' should exist on rental_fulfillment_items.');
+    }
+
+    assertSame('date', columnDataType('rental_fulfillments', 'planned_start_date'), 'Planned start should be DATE.');
+    assertSame('date', columnDataType('rental_fulfillments', 'planned_end_date'), 'Planned end should be DATE.');
+    assertSame('datetime', columnDataType('rental_fulfillments', 'actual_handover_at'), 'Actual handover should be DATETIME.');
+    assertSame('datetime', columnDataType('rental_fulfillments', 'actual_return_at'), 'Actual return should be DATETIME.');
+    assertTrue(indexExists('rental_fulfillments', 'uniq_rental_fulfillments_booking_id'), 'Fulfillment booking uniqueness missing.');
+    assertTrue(indexExists('rental_fulfillment_items', 'uniq_rental_fulfillment_items_booking_item'), 'Fulfillment item uniqueness missing.');
+    assertTrue(foreignKeyExists('rental_fulfillments', 'organizations'), 'Fulfillments should reference organizations.');
+    assertTrue(foreignKeyExists('rental_fulfillments', 'bookings'), 'Fulfillments should reference bookings.');
+    assertTrue(foreignKeyExists('rental_fulfillments', 'users'), 'Fulfillment actors should reference users.');
+    assertTrue(foreignKeyExists('rental_fulfillment_items', 'rental_fulfillments'), 'Fulfillment items should reference fulfillments.');
+    assertTrue(foreignKeyExists('rental_fulfillment_items', 'booking_items'), 'Fulfillment items should reference booking items.');
+    assertTrue(foreignKeyExists('rental_fulfillment_items', 'rental_items'), 'Fulfillment items should reference rental items.');
+    assertFalse(columnDataType('rental_fulfillments', 'deposit_status_key') === 'enum', 'Deposit statuses should not use ENUM.');
+    assertFalse(columnDataType('rental_fulfillment_items', 'handover_condition_key') === 'enum', 'Handover conditions should not use ENUM.');
+    assertFalse(columnDataType('rental_fulfillment_items', 'return_condition_key') === 'enum', 'Return conditions should not use ENUM.');
+});
+
+$runner->test('rental fulfillment service records handover and return safely', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingAvailabilityService,
+    $bookingPricingService,
+    $rentalFulfillmentRepository,
+    $rentalFulfillmentItemRepository,
+    $rentalFulfillmentService
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Fulfillment Org ' . $suffix, 'fulfillment-org-' . $suffix);
+        $otherOrganizationId = createOrganization('Other Fulfillment Org ' . $suffix, 'other-fulfillment-org-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for fulfillment tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $itemA = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'fulfillment-item-a-' . $suffix,
+            'Fulfillment Item A ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemB = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'fulfillment-item-b-' . $suffix,
+            'Fulfillment Item B ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $service = new BookingService(
+            $bookingRepository,
+            $bookingItemRepository,
+            $rentalItemRepository,
+            $bookingAvailabilityService,
+            $bookingPricingService
+        );
+        $statusService = new BookingStatusService($bookingRepository);
+        $booking = $service->createRequest([
+            'rental_item_id' => (int) ($itemA->toArray()['id'] ?? 0),
+            'start_date' => '2035-09-10',
+            'end_date' => '2035-09-12',
+            'customer_name' => 'Fulfillment Customer ' . $suffix,
+            'customer_email' => 'fulfillment.customer.' . $suffix . '@example.com',
+            'customer_phone' => '070-900 90 90',
+        ]);
+        $bookingId = (int) ($booking->toArray()['id'] ?? 0);
+        $bookingItemRepository->create([
+            'organization_id' => $organizationId,
+            'booking_id' => $bookingId,
+            'rental_item_id' => (int) ($itemB->toArray()['id'] ?? 0),
+            'start_date' => '2035-09-10',
+            'end_date' => '2035-09-12',
+            'rate_type' => 'daily',
+            'unit_price' => '250.00',
+            'currency' => 'SEK',
+            'quantity' => 1,
+            'number_of_units' => 3,
+            'subtotal_amount' => '750.00',
+            'deposit_amount' => '250.00',
+        ]);
+        $statusService->transition($organizationId, $bookingId, 'approved');
+        $approvedBooking = $bookingRepository->findById($bookingId, $organizationId);
+        $approvedData = $approvedBooking->toArray();
+        $bookingItems = $bookingItemRepository->findAdminForBooking($organizationId, $bookingId)->toArray();
+        assertSame(2, count($bookingItems), 'Fulfillment booking should have two booking items.');
+
+        $adminSession = createAuthenticatedTestUser(false, [$organizationId]);
+        $request = new Request('POST', '/admin/bookings/' . ($approvedData['public_id'] ?? '') . '/handover', [], [], [], [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ]);
+        $request->setAuthenticatedUserId($adminSession['user_id']);
+        $handover = $rentalFulfillmentService->recordHandover(
+            $request,
+            (string) ($approvedData['public_id'] ?? ''),
+            [
+                'actual_handover_at' => '2035-09-10 08:30:00',
+                'handover_condition_key' => 'good',
+                'handover_condition_note' => 'Rent och kontrollerat vid utlämning.',
+                'received_by_name' => 'Fulfillment Customer ' . $suffix,
+                'deposit_received_amount' => '250.00',
+                'deposit_status_key' => 'received',
+            ]
+        );
+        $handoverData = $handover->toArray();
+        assertSame($bookingId, (int) ($handoverData['booking_id'] ?? 0), 'Fulfillment should link to booking.');
+        assertSame('2035-09-10', $handoverData['planned_start_date'] ?? null, 'Planned start should be snapshotted.');
+        assertSame('2035-09-12', $handoverData['planned_end_date'] ?? null, 'Planned end should be snapshotted.');
+        assertSame('2035-09-10 08:30:00', $handoverData['actual_handover_at'] ?? null, 'Actual handover should be stored separately.');
+        assertSame('received', $handoverData['deposit_status_key'] ?? null, 'Manual deposit status should be stored.');
+        assertSame('active', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Handover should activate booking.');
+
+        $fulfillmentId = (int) ($handoverData['id'] ?? 0);
+        $fulfillmentItems = $rentalFulfillmentItemRepository->findForFulfillment($fulfillmentId);
+        assertSame(2, $fulfillmentItems->count(), 'One fulfillment item should be created per booking item.');
+        $firstSnapshot = null;
+
+        foreach ($fulfillmentItems as $fulfillmentItem) {
+            assertTrue($fulfillmentItem instanceof RentalFulfillmentItem, 'Fulfillment item should be a model.');
+            $itemData = $fulfillmentItem->toArray();
+            assertSame('good', $itemData['handover_condition_key'] ?? null, 'Handover condition should be captured.');
+            assertTrue((string) ($itemData['item_name_snapshot'] ?? '') !== '', 'Item name snapshot should be stored.');
+            $firstSnapshot ??= $itemData;
+        }
+
+        assertTrue($firstSnapshot !== null, 'A fulfillment item snapshot should exist.');
+        $pdo->prepare('UPDATE rental_items SET name = :name, updated_at = UTC_TIMESTAMP() WHERE id = :id')->execute([
+            'id' => (int) ($firstSnapshot['rental_item_id'] ?? 0),
+            'name' => 'Changed Item Name ' . $suffix,
+        ]);
+
+        $return = $rentalFulfillmentService->recordReturn(
+            $request,
+            (string) ($approvedData['public_id'] ?? ''),
+            [
+                'actual_return_at' => '2035-09-13 10:15:00',
+                'return_condition_key' => 'damaged',
+                'return_condition_note' => 'Mindre skada noterad vid återlämning.',
+                'has_return_deviation' => true,
+                'damage_note' => 'Skrapmärke på kåpa.',
+                'deposit_returned_amount' => '200.00',
+                'deposit_retained_amount' => '50.00',
+                'deposit_status_key' => 'partially_retained',
+                'return_note' => 'Sen återlämning registrerad utan automatisk avgift.',
+            ]
+        );
+        $returnData = $return->toArray();
+        assertSame('2035-09-13 10:15:00', $returnData['actual_return_at'] ?? null, 'Actual return should be stored separately.');
+        assertSame('partially_retained', $returnData['deposit_status_key'] ?? null, 'Return deposit status should be manual business data.');
+        assertSame('completed', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Return should complete booking.');
+        assertSame('2035-09-10', $bookingRepository->findById($bookingId, $organizationId)->toArray()['start_date'] ?? null, 'Return should not change planned start date.');
+        assertSame('2035-09-12', $bookingRepository->findById($bookingId, $organizationId)->toArray()['end_date'] ?? null, 'Return should not change planned end date.');
+        assertTrue($bookingAvailabilityService->isAvailable($organizationId, (int) ($itemA->toArray()['id'] ?? 0), '2035-09-12', '2035-09-12'), 'Completed bookings should release future availability according to existing status logic.');
+
+        $snapshotsAfterReturn = $rentalFulfillmentItemRepository->findForFulfillment($fulfillmentId);
+        foreach ($snapshotsAfterReturn as $fulfillmentItem) {
+            assertTrue($fulfillmentItem instanceof RentalFulfillmentItem, 'Returned fulfillment item should be a model.');
+            $itemData = $fulfillmentItem->toArray();
+            assertSame('damaged', $itemData['return_condition_key'] ?? null, 'Return condition should be captured.');
+            assertSame(1, (int) ($itemData['has_return_deviation'] ?? 0), 'Deviation flag should be stored.');
+            if ((int) ($itemData['id'] ?? 0) === (int) ($firstSnapshot['id'] ?? 0)) {
+                assertSame(
+                    $firstSnapshot['item_name_snapshot'] ?? null,
+                    $itemData['item_name_snapshot'] ?? null,
+                    'Item snapshots should stay immutable after rental item edits.'
+                );
+            }
+        }
+
+        assertTrue(auditCount('rental_handover_recorded', 'rental_fulfillment') >= 1, 'Handover should be audited.');
+        assertTrue(auditCount('rental_return_recorded', 'rental_fulfillment') >= 1, 'Return should be audited.');
+
+        $badBooking = $service->createRequest([
+            'rental_item_id' => (int) ($itemA->toArray()['id'] ?? 0),
+            'start_date' => '2035-09-20',
+            'end_date' => '2035-09-20',
+            'customer_name' => 'Invalid Fulfillment Customer ' . $suffix,
+            'customer_email' => 'invalid.fulfillment.' . $suffix . '@example.com',
+            'customer_phone' => '070-900 90 91',
+        ]);
+        $badBookingId = (int) ($badBooking->toArray()['id'] ?? 0);
+        $statusService->transition($organizationId, $badBookingId, 'approved');
+        $badBookingData = $bookingRepository->findById($badBookingId, $organizationId)->toArray();
+        assertThrows(
+            static function () use ($rentalFulfillmentService, $request, $badBookingData): void {
+                $rentalFulfillmentService->recordHandover(
+                    $request,
+                    (string) ($badBookingData['public_id'] ?? ''),
+                    [
+                        'actual_handover_at' => '2035-09-20 08:00:00',
+                        'handover_condition_key' => 'unknown',
+                    ]
+                );
+            },
+            BookingException::class,
+            'Invalid condition should stop handover.'
+        );
+        assertSame('approved', $bookingRepository->findById($badBookingId, $organizationId)->toArray()['status_key'] ?? null, 'Failed handover should not activate booking.');
+        assertSame(null, $rentalFulfillmentRepository->findByBookingId($badBookingId, $organizationId), 'Failed handover should not create fulfillment.');
+
+        $otherAdminSession = createAuthenticatedTestUser(false, [$otherOrganizationId]);
+        $otherRequest = new Request('POST', '/admin/bookings/' . ($badBookingData['public_id'] ?? '') . '/handover');
+        $otherRequest->setAuthenticatedUserId($otherAdminSession['user_id']);
+        assertThrows(
+            static function () use ($rentalFulfillmentService, $otherRequest, $badBookingData): void {
+                $rentalFulfillmentService->recordHandover(
+                    $otherRequest,
+                    (string) ($badBookingData['public_id'] ?? ''),
+                    [
+                        'actual_handover_at' => '2035-09-20 08:00:00',
+                        'handover_condition_key' => 'good',
+                    ]
+                );
+            },
+            NotFoundException::class,
+            'Cross-organization handover should be hidden.'
+        );
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
 });
 
 $runner->test('booking_created creates idempotent customer and admin notifications', static function () use (
