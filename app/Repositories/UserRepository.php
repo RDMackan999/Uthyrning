@@ -54,6 +54,49 @@ final class UserRepository extends BaseRepository
     }
 
     /**
+     * Find active users for system-admin assignment selection.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findAllActiveForAdmin(?string $query = null): array
+    {
+        $params = ['status_key' => 'active'];
+        $sql = 'SELECT id,
+                email,
+                email_normalized,
+                first_name,
+                last_name,
+                status_key,
+                created_at
+             FROM users
+             WHERE status_key = :status_key
+                AND deleted_at IS NULL';
+
+        $search = $this->nullableSearch($query);
+        if ($search !== null) {
+            $sql .= ' AND (
+                email_normalized LIKE :query_email
+                OR first_name LIKE :query_first_name
+                OR last_name LIKE :query_last_name
+             )';
+            $wildcard = '%' . $search . '%';
+            $params['query_email'] = $wildcard;
+            $params['query_first_name'] = $wildcard;
+            $params['query_last_name'] = $wildcard;
+        }
+
+        $sql .= ' ORDER BY email_normalized ASC, id ASC LIMIT 250';
+
+        $statement = Database::pdo()->prepare($sql);
+        $statement->execute($params);
+
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return $rows;
+    }
+
+    /**
      * Determine whether an email already exists, including soft-deleted users.
      */
     public function emailExists(string $email): bool
@@ -106,5 +149,16 @@ final class UserRepository extends BaseRepository
         ]);
 
         return $this->findById((int) Database::pdo()->lastInsertId());
+    }
+
+    private function nullableSearch(?string $query): ?string
+    {
+        if ($query === null) {
+            return null;
+        }
+
+        $normalized = trim(strtolower($query));
+
+        return $normalized === '' ? null : substr($normalized, 0, 120);
     }
 }

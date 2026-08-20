@@ -10,6 +10,7 @@ use App\Controllers\AdminNotificationController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
+use App\Controllers\OrganizationAdminAssignmentController;
 use App\Controllers\PublicBookingController;
 use App\Controllers\PublicRentalItemController;
 use App\Controllers\RentalItemController;
@@ -27,6 +28,7 @@ return static function (Router $router): void {
     $adminCustomerController = AdminCustomerController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
     $adminNotificationController = AdminNotificationController::fromConfig();
+    $organizationAdminAssignmentController = OrganizationAdminAssignmentController::fromConfig();
     $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
     $rentalItemController = RentalItemController::fromConfig();
@@ -35,6 +37,10 @@ return static function (Router $router): void {
     $adminMiddleware = [
         $authenticationMiddleware,
         new AuthorizationMiddleware(['system_admin', 'organization_admin']),
+    ];
+    $systemAdminMiddleware = [
+        $authenticationMiddleware,
+        new AuthorizationMiddleware(['system_admin']),
     ];
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
@@ -117,6 +123,26 @@ return static function (Router $router): void {
         '/admin/notifications/{public_id}/retry',
         static fn (Request $request): Response => $adminNotificationController->retry($request),
         $adminMiddleware
+    );
+    $router->get(
+        '/admin/organization-admins',
+        static fn (Request $request): Response => $organizationAdminAssignmentController->index($request),
+        $systemAdminMiddleware
+    );
+    $router->get(
+        '/admin/organization-admins/assign',
+        static fn (Request $request): Response => $organizationAdminAssignmentController->assign($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/organization-admins',
+        static fn (Request $request): Response => $organizationAdminAssignmentController->store($request),
+        $systemAdminMiddleware
+    );
+    $router->post(
+        '/admin/organization-admins/{user_id}/{organization_id}/revoke',
+        static fn (Request $request): Response => $organizationAdminAssignmentController->revoke($request),
+        $systemAdminMiddleware
     );
     $router->get(
         '/admin/customers',
