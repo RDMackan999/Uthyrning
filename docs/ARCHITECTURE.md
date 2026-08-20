@@ -293,6 +293,15 @@ API-endpoints ska:
 
 Administrativa vyer för drift, moderation, systeminställningar och översikt. Ska skyddas med rollbaserad behörighet.
 
+Adminytan ska stödja två behörighetsnivåer:
+
+- `system_admin` för global plattformsadministration.
+- `organization_admin` för administration inom en eller flera tilldelade organisationer.
+
+Route-middleware ska göra grov kontroll av att användaren har rätt adminroll. Resursåtkomst ska därefter kontrolleras mot ett auth context som innehåller användare, systemroller, tillåtna organisationer och aktuell organisationskontext.
+
+Repositories ska inte användas för oscopeade adminändringar när användaren är organisationsscopad. Services eller dedikerat auktoriseringslager ska först säkerställa att resursens `organization_id` ligger inom användarens behöriga organisationer.
+
 ### customer
 
 Kundflöden för den som hyr: profil, bokningar, avtal, betalstatus och historik.

@@ -928,6 +928,68 @@ Kundportal, kundlogin, BankID, automatiserad merge, avancerad CRM, marketing, fa
 
 ---
 
+# Beslut 0021
+
+## Datum
+
+2026-08-20
+
+## Status
+
+Accepted
+
+## Titel
+
+Organisationsscopad adminbehörighet
+
+## Beslut
+
+Adminbehörighet ska byggas med tydlig skillnad mellan global plattformsbehörighet och organisationsscopad behörighet.
+
+`system_admin` är en global systemroll. Den får användas för plattformsadministration, felsökning och kontroller som uttryckligen kräver insyn över flera organisationer. Global åtkomst ska vara avsiktlig, serverkontrollerad och audit-loggad.
+
+`organization_admin` är en organisationsscopad roll. En användare får vara `organization_admin` för en eller flera organisationer genom flera rader i `user_roles`, där varje tilldelning har ett `organization_id`.
+
+Version 1 ska rekommenderat använda en global rollrad för `organization_admin` och lägga organisationsscope i `user_roles.organization_id`. `roles.organization_id` behålls för framtida organisationsspecifika roller, men ska inte krävas för standardrollen i Version 1.
+
+`system_admin` ska endast tilldelas utan organisationsscope. `organization_admin` ska endast ge adminåtkomst när tilldelningen har ett giltigt `organization_id`.
+
+Behörighetskontroller ska bygga ett auth context med minst:
+
+- inloggad användare
+- globala systemroller
+- organisationer där användaren har adminscope
+- aktuell organisationskontext
+- resurstyp och resursidentifierare när åtgärden gäller ett befintligt objekt
+
+Aktuell organisationskontext ska i första hand härledas från den resurs som hanteras. För nya resurser får organisation väljas från användarens tillåtna organisationer, men värdet ska alltid verifieras på serversidan.
+
+Resursåtkomst ska alltid kontrolleras mot organisationen som äger resursen. Detta gäller minst uthyrningsobjekt, priser, tillgänglighetsblockeringar, bokningar, kunder, notifieringar och företag.
+
+Route-middleware får göra grov kontroll, till exempel att användaren är `system_admin` eller har någon organisationsadminroll. Resursspecifik åtkomst ska därefter kontrolleras i services eller ett dedikerat auktoriseringslager innan repositories används för ändring.
+
+Direkta resursreferenser får inte läcka om en resurs finns i en annan organisation. Organisation-admin ska få generiskt nekad åtkomst eller 404-liknande svar beroende på flöde. Nekade åtkomstförsök ska audit-loggas utan att avslöja hemligheter.
+
+Framtida roller som `organization_staff`, `booking_manager` och `inventory_manager` förbereds av modellen men designas inte i detalj i denna sprint.
+
+## Motivering
+
+Version 1 har bara en uthyrare, men projektet ska kunna växa till marknadsplats. Om adminbehörighet byggs globalt från början blir cross-tenant-läckage och senare ombyggnad sannolikt.
+
+Att lägga scope i `user_roles` gör att samma användare kan administrera flera organisationer utan duplicerade användarkonton. Det håller modellen enkel för Version 1 och bevarar stöd för mer detaljerade organisationsroller senare.
+
+Tydlig uppdelning mellan route-kontroll och resurskontroll minskar risken för IDOR, särskilt när public_id, adminlänkar och framtida API:er införs.
+
+## Konsekvens
+
+Sprint 8D bör implementera auktoriseringsgrund för organisation-admin utan att bygga roll-UI eller organisationsväljare. Implementationen bör utöka befintlig middleware försiktigt, införa en auth context och lägga serverkontroller för organisationsscope i adminflöden som hanterar befintliga resurser.
+
+Databasmodellen behöver på sikt säkerställa att `system_admin` inte kan råka få organisationsscope och att `organization_admin` inte kan tilldelas utan organisationsscope. Det kan göras via applikationsvalidering först och senare med constraints om databasmotorn stödjer det på ett tydligt sätt.
+
+Audit-loggar bör kunna bära både `actor_user_id`, `organization_id`, resurstyp, resurs-id och resultatet av behörighetskontrollen.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:
@@ -941,7 +1003,7 @@ Exempel på beslut som senare ska dokumenteras:
 - Hosting
 - Cache
 - Filhantering
-- Behörighetsmodell
+- Finmaskiga organisationsroller
 - Loggningsstrategi
 - GDPR-strategi
 

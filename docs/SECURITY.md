@@ -138,6 +138,27 @@ All känslig funktionalitet ska verifiera:
 
 innan åtgärden utförs.
 
+## Organisationsscopad adminåtkomst
+
+Adminåtkomst ska följa minsta privilegium.
+
+`system_admin` är global och får endast användas där plattformsnivå behövs. Åtgärder där `system_admin` går över organisationsgränser ska audit-loggas.
+
+`organization_admin` får endast komma åt data inom organisationer där användaren har en aktiv, organisationsscopad rolltilldelning.
+
+Organisationstillhörighet får inte litas på från klienten. För befintliga resurser ska organisationen härledas från resursen eller dess ägare, till exempel:
+
+- uthyrningsobjekt via `rental_items.organization_id`
+- priser och tillgänglighet via ägande uthyrningsobjekt
+- bokningar via `bookings.organization_id`
+- kunder via `customers.organization_id`
+- företag via `companies.organization_id`
+- notifieringar via `notifications.organization_id`
+
+För nya resurser får användaren välja organisation endast bland organisationer som finns i auth context. Servern ska alltid verifiera valet innan något sparas.
+
+Direkta resursreferenser ska skyddas mot IDOR. En organisation-admin ska inte kunna avgöra om en nekad resurs finns i en annan organisation genom felmeddelanden, listor eller sidokanaler. Nekad cross-tenant-åtkomst ska loggas som säkerhetshändelse utan att hemligheter, personnummer, tokens eller sessions-id loggas.
+
 ---
 
 # Sessionssäkerhet
