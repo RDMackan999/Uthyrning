@@ -170,6 +170,13 @@ Visar:
 
 Version 1 ska bara visa publikt bokningsbara objekt. Objekt som är dolda, arkiverade, soft delete:ade, trasiga eller under service ska inte visas som bokningsbara i den publika listan.
 
+Bildvisning:
+
+- Objektlistan ska använda huvudbildens `card`-variant.
+- Om huvudbild saknas används första aktiva bild enligt sortering.
+- Om objektet saknar aktiv bild används neutral fallback.
+- Interna storage keys, filnamn och metadata visas inte publikt.
+
 Filter:
 
 - kategori
@@ -198,6 +205,13 @@ Visar:
 - villkor
 
 Objektdetaljen ska senare använda objektets publika slug i URL. Interna id:n ska inte visas som primär publik identifierare.
+
+Bildvisning på objektdetalj:
+
+- Huvudbild visas först.
+- Övriga aktiva bilder visas som galleri med `detail`-variant.
+- Saknad bild ska hanteras med fallback utan att blockera sidan.
+- Publik vy visar aldrig intern mediahistorik, uppladdare, checksumma eller storage path.
 
 Knapp:
 
@@ -332,6 +346,16 @@ Kategorier hanteras som en enkel lista i Version 1.
 Administratören kan från ett objekt öppna kalenderblockeringar och skapa eller arkivera manuella perioder då objektet inte kan bokas.
 
 Framtida underkategorier och flera kategorier per objekt ska inte visas innan separat sprint.
+
+Bildflöde i admin när media byggs:
+
+- Administratören ska kunna lägga till flera bilder på ett objekt.
+- Administratören ska kunna se befintliga aktiva bilder.
+- Administratören ska kunna välja huvudbild.
+- Administratören ska kunna sortera bilder.
+- Administratören ska kunna ta bort bild från objekt genom logisk arkivering av kopplingen.
+- Adminvyn ska visa uppladdningsfel utan att exponera interna sökvägar eller storage keys.
+- Mediahantering ska följa objektets organisation och befintliga adminbehörighet.
 
 Version 1-formulär för objekt ska hållas enkelt.
 
