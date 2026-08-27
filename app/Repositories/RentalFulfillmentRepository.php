@@ -72,6 +72,37 @@ final class RentalFulfillmentRepository extends BaseRepository
     }
 
     /**
+     * Find admin display data for one booking fulfillment.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findAdminByBookingId(int $organizationId, int $bookingId): ?array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT rental_fulfillments.*,
+                handover_user.email AS handed_over_by_email,
+                return_user.email AS returned_to_email
+             FROM rental_fulfillments
+             LEFT JOIN users AS handover_user
+                ON handover_user.id = rental_fulfillments.handed_over_by_user_id
+             LEFT JOIN users AS return_user
+                ON return_user.id = rental_fulfillments.returned_to_user_id
+             WHERE rental_fulfillments.booking_id = :booking_id
+                AND rental_fulfillments.organization_id = :organization_id
+                AND rental_fulfillments.deleted_at IS NULL
+             LIMIT 1'
+        );
+        $statement->execute([
+            'organization_id' => $organizationId,
+            'booking_id' => $bookingId,
+        ]);
+
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Create a fulfillment header without changing booking status.
      *
      * @param array<string, mixed> $data

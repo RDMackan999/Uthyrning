@@ -13,6 +13,8 @@ use App\Core\Response;
 use App\Models\Booking;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
+use App\Repositories\RentalFulfillmentItemRepository;
+use App\Repositories\RentalFulfillmentRepository;
 use App\Services\BookingStatusService;
 use App\Services\OrganizationAuthorizationService;
 use Throwable;
@@ -32,6 +34,8 @@ final class AdminBookingController extends BaseController
     public function __construct(
         private readonly BookingRepository $bookingRepository = new BookingRepository(),
         private readonly BookingItemRepository $bookingItemRepository = new BookingItemRepository(),
+        private readonly RentalFulfillmentRepository $fulfillmentRepository = new RentalFulfillmentRepository(),
+        private readonly RentalFulfillmentItemRepository $fulfillmentItemRepository = new RentalFulfillmentItemRepository(),
         private readonly BookingStatusService $bookingStatusService = new BookingStatusService(),
         private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
@@ -51,6 +55,8 @@ final class AdminBookingController extends BaseController
         return new self(
             $bookingRepository,
             new BookingItemRepository(),
+            new RentalFulfillmentRepository(),
+            new RentalFulfillmentItemRepository(),
             new BookingStatusService($bookingRepository),
             new OrganizationAuthorizationService()
         );
@@ -85,11 +91,18 @@ final class AdminBookingController extends BaseController
         $organizationId = (int) ($bookingData['organization_id'] ?? 0);
         $bookingId = (int) ($bookingData['id'] ?? 0);
         $statusKey = $this->stringValue($bookingData['status_key'] ?? null);
+        $fulfillment = $this->fulfillmentRepository->findAdminByBookingId($organizationId, $bookingId);
+        $fulfillmentId = (int) ($fulfillment['id'] ?? 0);
 
         return $this->viewWithLayout('admin/bookings/show', 'layouts/admin', [
             'pageTitle' => 'Bokningsdetalj',
             'booking' => $bookingData,
             'items' => $this->bookingItemRepository->findAdminForBooking($organizationId, $bookingId)->toArray(),
+            'fulfillment' => $fulfillment,
+            'fulfillmentItems' => $fulfillmentId > 0
+                ? $this->fulfillmentItemRepository->findAdminForFulfillment($fulfillmentId)
+                : [],
+            'fulfillmentAction' => $this->fulfillmentAction($statusKey, $fulfillment),
             'statusHistory' => $this->bookingRepository->findStatusHistoryForBooking($organizationId, $bookingId),
             'internalNotes' => $this->bookingRepository->findInternalNotesForBooking($organizationId, $bookingId),
             'availableActions' => $this->availableActions($statusKey),
@@ -128,7 +141,7 @@ final class AdminBookingController extends BaseController
      */
     public function start(Request $request): Response
     {
-        return $this->transition($request, 'active');
+        return $this->redirect($this->bookingPath($this->bookingFromRoute($request)) . '?error=fulfillment_required');
     }
 
     /**
@@ -136,7 +149,7 @@ final class AdminBookingController extends BaseController
      */
     public function complete(Request $request): Response
     {
-        return $this->transition($request, 'completed');
+        return $this->redirect($this->bookingPath($this->bookingFromRoute($request)) . '?error=fulfillment_required');
     }
 
     /**
@@ -222,8 +235,6 @@ final class AdminBookingController extends BaseController
             'approved' => 'Godkänn',
             'rejected' => 'Neka',
             'cancelled' => 'Avboka',
-            'active' => 'Markera som aktiv',
-            'completed' => 'Markera som slutförd',
         ];
         $available = [];
 
@@ -236,6 +247,29 @@ final class AdminBookingController extends BaseController
         }
 
         return $available;
+    }
+
+    /**
+     * @param array<string, mixed>|null $fulfillment
+     * @return array{path: string, label: string}|null
+     */
+    private function fulfillmentAction(string $statusKey, ?array $fulfillment): ?array
+    {
+        if ($statusKey === 'approved' && $fulfillment === null) {
+            return [
+                'path' => 'handover',
+                'label' => 'Lämna ut',
+            ];
+        }
+
+        if ($statusKey === 'active' && $fulfillment !== null && ($fulfillment['actual_return_at'] ?? null) === null) {
+            return [
+                'path' => 'return',
+                'label' => 'Registrera återlämning',
+            ];
+        }
+
+        return null;
     }
 
     /**
@@ -288,6 +322,8 @@ final class AdminBookingController extends BaseController
             'cancelled' => 'Bokningen har avbokats.',
             'active' => 'Bokningen har markerats som aktiv.',
             'completed' => 'Bokningen har markerats som slutförd.',
+            'handover' => 'Utlämningen har registrerats.',
+            'return' => 'Återlämningen har registrerats.',
             default => null,
         };
     }
@@ -298,6 +334,9 @@ final class AdminBookingController extends BaseController
             'csrf' => 'Formuläret kunde inte verifieras. Försök igen.',
             'transition' => 'Statusändringen är inte tillåten för bokningens nuvarande status.',
             'changed' => 'Bokningen kunde inte uppdateras. Ladda om sidan och försök igen.',
+            'fulfillment_required' => 'Bokningen måste hanteras via utlämnings- eller återlämningsflödet.',
+            'fulfillment_status' => 'Åtgärden är inte tillåten för bokningens nuvarande genomförandeläge.',
+            'fulfillment_exists' => 'Utlämning är redan registrerad för bokningen.',
             default => null,
         };
     }
