@@ -58,6 +58,32 @@ final class RentalFulfillmentItemRepository extends BaseRepository
     }
 
     /**
+     * Find item snapshots with booking item dates for admin history display.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findAdminForFulfillment(int $fulfillmentId): array
+    {
+        $statement = Database::pdo()->prepare(
+            'SELECT rental_fulfillment_items.*,
+                booking_items.start_date,
+                booking_items.end_date
+             FROM rental_fulfillment_items
+             INNER JOIN booking_items
+                ON booking_items.id = rental_fulfillment_items.booking_item_id
+             WHERE rental_fulfillment_items.rental_fulfillment_id = :rental_fulfillment_id
+                AND rental_fulfillment_items.deleted_at IS NULL
+             ORDER BY rental_fulfillment_items.id ASC'
+        );
+        $statement->execute(['rental_fulfillment_id' => $fulfillmentId]);
+
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
+
+        return $rows;
+    }
+
+    /**
      * Create an immutable handover snapshot for one booking item.
      *
      * @param array<string, mixed> $data

@@ -2,6 +2,9 @@
 
 $booking = is_array($booking ?? null) ? $booking : [];
 $items = is_array($items ?? null) ? $items : [];
+$fulfillment = is_array($fulfillment ?? null) ? $fulfillment : null;
+$fulfillmentItems = is_array($fulfillmentItems ?? null) ? $fulfillmentItems : [];
+$fulfillmentAction = is_array($fulfillmentAction ?? null) ? $fulfillmentAction : null;
 $statusHistory = is_array($statusHistory ?? null) ? $statusHistory : [];
 $internalNotes = is_array($internalNotes ?? null) ? $internalNotes : [];
 $availableActions = is_array($availableActions ?? null) ? $availableActions : [];
@@ -20,6 +23,21 @@ $statusLabels = [
     'completed' => 'Slutförd',
 ];
 $statusLabel = static fn (mixed $value): string => $statusLabels[(string) $value] ?? (string) $value;
+$conditionLabels = [
+    'good' => 'Bra',
+    'acceptable' => 'Acceptabelt',
+    'damaged' => 'Skadat',
+];
+$conditionLabel = static fn (mixed $value): string => $conditionLabels[(string) $value] ?? (string) ($value ?? '-');
+$depositLabels = [
+    'not_required' => 'Krävs inte',
+    'required' => 'Krävs',
+    'received' => 'Mottagen',
+    'returned' => 'Återbetald',
+    'partially_retained' => 'Delvis innehållen',
+    'retained' => 'Innehållen',
+];
+$depositLabel = static fn (mixed $value): string => $depositLabels[(string) $value] ?? (string) ($value ?? '-');
 $money = static function (mixed $amount, mixed $currency) use ($escape): string {
     if ($amount === null || $amount === '') {
         return '-';
@@ -31,10 +49,12 @@ $actionPath = static fn (string $status): string => match ($status) {
     'approved' => 'approve',
     'rejected' => 'reject',
     'cancelled' => 'cancel',
-    'active' => 'start',
-    'completed' => 'complete',
     default => '',
 };
+$isLateReturn = $fulfillment !== null
+    && is_string($fulfillment['actual_return_at'] ?? null)
+    && is_string($booking['end_date'] ?? null)
+    && substr((string) $fulfillment['actual_return_at'], 0, 10) > (string) $booking['end_date'];
 ?>
 <section class="admin-panel">
     <div class="admin-page-header">
@@ -54,7 +74,7 @@ $actionPath = static fn (string $status): string => match ($status) {
         <p class="admin-error" role="alert"><?= $escape($error) ?></p>
     <?php endif; ?>
 
-    <?php if ($availableActions !== []): ?>
+    <?php if ($availableActions !== [] || $fulfillmentAction !== null): ?>
         <div class="admin-publication-actions" aria-label="Bokningsåtgärder">
             <?php foreach ($availableActions as $targetStatus => $label): ?>
                 <?php $path = $actionPath((string) $targetStatus); ?>
@@ -71,6 +91,11 @@ $actionPath = static fn (string $status): string => match ($status) {
                     </button>
                 </form>
             <?php endforeach; ?>
+            <?php if ($fulfillmentAction !== null): ?>
+                <a class="admin-button" href="/admin/bookings/<?= rawurlencode($publicId) ?>/<?= $escape($fulfillmentAction['path'] ?? '') ?>">
+                    <?= $escape($fulfillmentAction['label'] ?? '') ?>
+                </a>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -175,6 +200,132 @@ $actionPath = static fn (string $status): string => match ($status) {
                 </tbody>
             </table>
         </div>
+    <?php endif; ?>
+
+    <h2>Planerat och faktiskt</h2>
+    <div class="admin-readonly-grid">
+        <div>
+            <strong>Planerad start</strong>
+            <span><?= $escape($booking['start_date'] ?? '-') ?></span>
+        </div>
+        <div>
+            <strong>Planerat slut</strong>
+            <span><?= $escape($booking['end_date'] ?? '-') ?></span>
+        </div>
+        <div>
+            <strong>Faktisk utlämning</strong>
+            <span><?= $escape($fulfillment['actual_handover_at'] ?? '-') ?></span>
+        </div>
+        <div>
+            <strong>Faktisk återlämning</strong>
+            <span><?= $escape($fulfillment['actual_return_at'] ?? '-') ?></span>
+        </div>
+        <div>
+            <strong>Deposition</strong>
+            <span><?= $escape($depositLabel($fulfillment['deposit_status_key'] ?? '-')) ?></span>
+        </div>
+        <div>
+            <strong>Avvikelse</strong>
+            <span><?= $isLateReturn ? 'Sen återlämning' : '-' ?></span>
+        </div>
+    </div>
+
+    <h2>Genomförandehistorik</h2>
+    <?php if ($fulfillment === null): ?>
+        <p>Ingen genomförandehistorik finns ännu.</p>
+    <?php else: ?>
+        <div class="admin-readonly-grid">
+            <div>
+                <strong>Utlämnad</strong>
+                <span><?= $escape($fulfillment['actual_handover_at'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Utlämnad av</strong>
+                <span><?= $escape($fulfillment['handed_over_by_email'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Mottaget av</strong>
+                <span><?= $escape($fulfillment['received_by_name'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Villkorsversion</strong>
+                <span><?= $escape($fulfillment['terms_version_key'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Återlämnad</strong>
+                <span><?= $escape($fulfillment['actual_return_at'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Mottagen av</strong>
+                <span><?= $escape($fulfillment['returned_to_email'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Mottagen deposition</strong>
+                <span><?= $money($fulfillment['deposit_received_amount'] ?? null, $booking['currency'] ?? 'SEK') ?></span>
+            </div>
+            <div>
+                <strong>Återbetald deposition</strong>
+                <span><?= $money($fulfillment['deposit_returned_amount'] ?? null, $booking['currency'] ?? 'SEK') ?></span>
+            </div>
+            <div>
+                <strong>Innehållen deposition</strong>
+                <span><?= $money($fulfillment['deposit_retained_amount'] ?? null, $booking['currency'] ?? 'SEK') ?></span>
+            </div>
+            <div>
+                <strong>Depositionsstatus</strong>
+                <span><?= $escape($depositLabel($fulfillment['deposit_status_key'] ?? '-')) ?></span>
+            </div>
+            <div>
+                <strong>Utlämningsnotering</strong>
+                <span><?= $escape($fulfillment['handover_note'] ?? '-') ?></span>
+            </div>
+            <div>
+                <strong>Återlämningsnotering</strong>
+                <span><?= $escape($fulfillment['return_note'] ?? '-') ?></span>
+            </div>
+        </div>
+
+        <?php if ($fulfillmentItems !== []): ?>
+            <div class="admin-table-wrap">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Objekt</th>
+                            <th>Utlämnat skick</th>
+                            <th>Återlämnat skick</th>
+                            <th>Avvikelse</th>
+                            <th>Skadenotering</th>
+                            <th>Mätare</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($fulfillmentItems as $item): ?>
+                            <?php if (!is_array($item)) {
+                                continue;
+                            } ?>
+                            <tr>
+                                <td><?= $escape($item['item_name_snapshot'] ?? '') ?></td>
+                                <td>
+                                    <?= $escape($conditionLabel($item['handover_condition_key'] ?? '-')) ?><br>
+                                    <?= $escape($item['handover_condition_note'] ?? '-') ?>
+                                </td>
+                                <td>
+                                    <?= $escape($conditionLabel($item['return_condition_key'] ?? '-')) ?><br>
+                                    <?= $escape($item['return_condition_note'] ?? '-') ?>
+                                </td>
+                                <td><?= (int) ($item['has_return_deviation'] ?? 0) === 1 ? 'Ja' : '-' ?></td>
+                                <td><?= $escape($item['damage_note'] ?? '-') ?></td>
+                                <td>
+                                    <?= $escape($item['meter_value_handover'] ?? '-') ?>
+                                    -
+                                    <?= $escape($item['meter_value_return'] ?? '-') ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <h2>Interna noteringar</h2>

@@ -1030,6 +1030,355 @@ $runner->test('rental fulfillment service records handover and return safely', s
     }
 });
 
+$runner->test('admin rental fulfillment UX protects handover, return, history and scope', static function () use (
+    $basePath,
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $bookingRepository,
+    $bookingItemRepository,
+    $bookingService,
+    $rentalFulfillmentRepository,
+    $rentalFulfillmentItemRepository
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Fulfillment UX Org ' . $suffix, 'fulfillment-ux-org-' . $suffix);
+        $otherOrganizationId = createOrganization('Fulfillment UX Other ' . $suffix, 'fulfillment-ux-other-' . $suffix);
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for fulfillment UX tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'fulfillment-ux-item-' . $suffix,
+            'Fulfillment UX Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $otherItem = createBookableRentalItem(
+            $otherOrganizationId,
+            $categoryId,
+            'fulfillment-ux-other-' . $suffix,
+            'Fulfillment UX Other Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $statusService = new BookingStatusService($bookingRepository);
+        $booking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($item->toArray()['id'] ?? 0),
+            'start_date' => '2038-04-10',
+            'end_date' => '2038-04-12',
+            'customer_name' => 'Fulfillment UX Customer ' . $suffix,
+            'customer_email' => 'fulfillment-ux-' . $suffix . '@example.com',
+            'customer_phone' => '070-901 00 10',
+            'customer_comment' => 'Hämtar efter lunch.',
+        ]);
+        $bookingId = (int) ($booking->toArray()['id'] ?? 0);
+        $bookingPublicId = (string) ($booking->toArray()['public_id'] ?? '');
+        $statusService->transition($organizationId, $bookingId, 'approved');
+        $bookingItems = $bookingItemRepository->findAdminForBooking($organizationId, $bookingId)->toArray();
+        $bookingItemId = (int) ($bookingItems[0]['id'] ?? 0);
+
+        $otherBooking = $bookingService->createRequest([
+            'rental_item_id' => (int) ($otherItem->toArray()['id'] ?? 0),
+            'start_date' => '2038-04-10',
+            'end_date' => '2038-04-12',
+            'customer_name' => 'Fulfillment UX Other Customer ' . $suffix,
+            'customer_email' => 'fulfillment-ux-other-' . $suffix . '@example.com',
+            'customer_phone' => '070-901 00 11',
+        ]);
+        $statusService->transition($otherOrganizationId, (int) ($otherBooking->toArray()['id'] ?? 0), 'approved');
+
+        $router = new Router();
+        $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $systemAdminSession = createAuthenticatedTestUser(true);
+        $organizationAdminSession = createAuthenticatedTestUser(false, [$organizationId]);
+        $otherOrganizationAdminSession = createAuthenticatedTestUser(false, [$otherOrganizationId]);
+        $normalUserSession = createAuthenticatedTestUser(false);
+        $adminToken = $organizationAdminSession['token'];
+        $adminUserId = $organizationAdminSession['user_id'];
+        $adminCookies = ['uthyrning_session' => $adminToken];
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+
+        $unauthenticated = $router->dispatch(new Request('GET', '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover'));
+        assertSame(302, $unauthenticated->statusCode(), 'Unauthenticated handover should redirect to login.');
+        $forbidden = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            [],
+            [],
+            ['uthyrning_session' => $normalUserSession['token']],
+            $server
+        ));
+        assertSame(403, $forbidden->statusCode(), 'Non-admin users should be denied handover route.');
+        $crossTenantHandover = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            [],
+            [],
+            ['uthyrning_session' => $otherOrganizationAdminSession['token']],
+            $server
+        ));
+        assertSame(404, $crossTenantHandover->statusCode(), 'Other organization admin should receive safe 404 for handover.');
+
+        $systemHandoverForm = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            [],
+            [],
+            ['uthyrning_session' => $systemAdminSession['token']],
+            $server
+        ));
+        assertSame(200, $systemHandoverForm->statusCode(), 'system_admin should access handover form.');
+
+        $handoverForm = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $handoverForm->statusCode(), 'organization_admin should access handover form.');
+        assertTrue(str_contains($handoverForm->content(), 'Planerad period'), 'Handover form should show planned dates.');
+        assertTrue(str_contains($handoverForm->content(), 'Fulfillment UX Customer ' . $suffix), 'Handover form should show customer snapshot.');
+        assertTrue(str_contains($handoverForm->content(), 'csrf_token'), 'Handover form should include CSRF token.');
+        assertFalse(str_contains($handoverForm->content(), 'booking_status'), 'Handover form should not expose client-controlled booking status field.');
+
+        $missingHandoverCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            [],
+            [
+                'actual_handover_at' => '2038-04-10 08:00:00',
+                'items' => [
+                    $bookingItemId => ['condition_key' => 'good'],
+                ],
+            ],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $missingHandoverCsrf->statusCode(), 'Handover POST without CSRF should render a safe error.');
+        assertSame('approved', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Missing CSRF should not activate booking.');
+        assertSame(null, $rentalFulfillmentRepository->findByBookingId($bookingId, $organizationId), 'Missing CSRF should not create fulfillment.');
+
+        $invalidItemHandover = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            $adminToken,
+            [
+                'actual_handover_at' => '2038-04-10 08:00:00',
+                'items' => [
+                    999999 => ['condition_key' => 'good'],
+                ],
+            ]
+        ));
+        assertSame(200, $invalidItemHandover->statusCode(), 'Unknown booking item in handover should render validation error.');
+        assertSame('approved', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Unknown item should not activate booking.');
+
+        $handoverAuditBefore = auditCount('rental_handover_recorded', 'rental_fulfillment');
+        $handoverResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            $adminToken,
+            [
+                'actual_handover_at' => '2038-04-10 09:30:00',
+                'booking_status' => 'completed',
+                'organization_id' => (string) $otherOrganizationId,
+                'actor_user_id' => '999999',
+                'received_by_name' => 'Fulfillment UX Customer ' . $suffix,
+                'deposit_received_amount' => '500.00',
+                'deposit_status_key' => 'received',
+                'terms_version_key' => 'v1',
+                'handover_note' => 'Utlämnat med kvittens.',
+                'items' => [
+                    $bookingItemId => [
+                        'condition_key' => 'good',
+                        'condition_note' => 'Rent och laddat.',
+                        'meter_value' => '12.50',
+                    ],
+                ],
+            ]
+        ));
+        assertSame(302, $handoverResponse->statusCode(), 'Valid handover should redirect after success.');
+        assertSame('active', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Handover should make booking active.');
+        $fulfillment = $rentalFulfillmentRepository->findByBookingId($bookingId, $organizationId);
+        assertNotNull($fulfillment, 'Handover should create fulfillment.');
+        $fulfillmentData = $fulfillment->toArray();
+        $fulfillmentId = (int) ($fulfillmentData['id'] ?? 0);
+        assertSame($organizationId, (int) ($fulfillmentData['organization_id'] ?? 0), 'Server booking organization should be used.');
+        assertSame($adminUserId, (int) ($fulfillmentData['handed_over_by_user_id'] ?? 0), 'Authenticated admin should be stored as handover actor.');
+        assertSame('2038-04-10', $fulfillmentData['planned_start_date'] ?? null, 'Handover should snapshot planned start.');
+        assertSame('2038-04-12', $fulfillmentData['planned_end_date'] ?? null, 'Handover should snapshot planned end.');
+        assertSame('2038-04-10 09:30:00', $fulfillmentData['actual_handover_at'] ?? null, 'Handover should store actual UTC timestamp.');
+        assertSame($handoverAuditBefore + 1, auditCount('rental_handover_recorded', 'rental_fulfillment'), 'Handover should create one audit event.');
+        $fulfillmentItems = $rentalFulfillmentItemRepository->findForFulfillment($fulfillmentId);
+        assertSame(1, $fulfillmentItems->count(), 'Handover should create one fulfillment item per booking item.');
+
+        $activeDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertTrue(str_contains($activeDetail->content(), 'Registrera återlämning'), 'Active booking detail should link to return form.');
+        assertTrue(str_contains($activeDetail->content(), 'Genomförandehistorik'), 'Booking detail should show fulfillment history.');
+        assertTrue(str_contains($activeDetail->content(), 'Rent och laddat.'), 'Fulfillment history should show handover condition note.');
+
+        $duplicateHandoverCountBefore = (int) $pdo->query('SELECT COUNT(*) FROM rental_fulfillments WHERE booking_id = ' . $bookingId)->fetchColumn();
+        $duplicateHandover = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/handover',
+            $adminToken,
+            [
+                'actual_handover_at' => '2038-04-10 10:00:00',
+                'items' => [
+                    $bookingItemId => ['condition_key' => 'good'],
+                ],
+            ]
+        ));
+        assertSame(302, $duplicateHandover->statusCode(), 'Duplicate handover should redirect safely.');
+        assertSame($duplicateHandoverCountBefore, (int) $pdo->query('SELECT COUNT(*) FROM rental_fulfillments WHERE booking_id = ' . $bookingId)->fetchColumn(), 'Duplicate handover should not create another fulfillment.');
+
+        $crossTenantReturn = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/return',
+            [],
+            [],
+            ['uthyrning_session' => $otherOrganizationAdminSession['token']],
+            $server
+        ));
+        assertSame(404, $crossTenantReturn->statusCode(), 'Other organization admin should receive safe 404 for return.');
+
+        $returnForm = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/return',
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $returnForm->statusCode(), 'Active booking should open return form.');
+        assertTrue(str_contains($returnForm->content(), 'Faktisk utlämning'), 'Return form should show actual handover.');
+        assertTrue(str_contains($returnForm->content(), 'Rent och laddat.'), 'Return form should show handover condition snapshot.');
+
+        $missingReturnCsrf = $router->dispatch(new Request(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/return',
+            [],
+            [
+                'actual_return_at' => '2038-04-13 10:00:00',
+                'items' => [
+                    $bookingItemId => ['condition_key' => 'good'],
+                ],
+            ],
+            $adminCookies,
+            $server
+        ));
+        assertSame(200, $missingReturnCsrf->statusCode(), 'Return POST without CSRF should render a safe error.');
+        assertSame('active', $bookingRepository->findById($bookingId, $organizationId)->toArray()['status_key'] ?? null, 'Missing return CSRF should not complete booking.');
+
+        $returnAuditBefore = auditCount('rental_return_recorded', 'rental_fulfillment');
+        $returnResponse = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/return',
+            $adminToken,
+            [
+                'actual_return_at' => '2038-04-13 10:00:00',
+                'booking_status' => 'cancelled',
+                'organization_id' => (string) $otherOrganizationId,
+                'actor_user_id' => '999999',
+                'deposit_returned_amount' => '450.00',
+                'deposit_retained_amount' => '50.00',
+                'deposit_status_key' => 'partially_retained',
+                'return_note' => 'Återlämnat efter planerat slut.',
+                'items' => [
+                    $bookingItemId => [
+                        'condition_key' => 'damaged',
+                        'condition_note' => 'Repa på hölje.',
+                        'has_return_deviation' => '1',
+                        'damage_note' => 'Mindre skada dokumenterad.',
+                        'meter_value' => '14.00',
+                    ],
+                ],
+            ]
+        ));
+        assertSame(302, $returnResponse->statusCode(), 'Valid return should redirect after success.');
+        $completedBooking = $bookingRepository->findById($bookingId, $organizationId);
+        assertSame('completed', $completedBooking->toArray()['status_key'] ?? null, 'Return should complete booking.');
+        assertSame('2038-04-10', $completedBooking->toArray()['start_date'] ?? null, 'Return should not change planned start.');
+        assertSame('2038-04-12', $completedBooking->toArray()['end_date'] ?? null, 'Return should not change planned end.');
+        $returnedFulfillment = $rentalFulfillmentRepository->findByBookingId($bookingId, $organizationId);
+        assertNotNull($returnedFulfillment, 'Returned fulfillment should remain readable.');
+        $returnedData = $returnedFulfillment->toArray();
+        assertSame($adminUserId, (int) ($returnedData['returned_to_user_id'] ?? 0), 'Authenticated admin should be stored as return actor.');
+        assertSame('2038-04-13 10:00:00', $returnedData['actual_return_at'] ?? null, 'Return should store actual UTC timestamp.');
+        assertSame('partially_retained', $returnedData['deposit_status_key'] ?? null, 'Return should store manual deposit status.');
+        assertSame($returnAuditBefore + 1, auditCount('rental_return_recorded', 'rental_fulfillment'), 'Return should create one audit event.');
+
+        $returnedItems = $rentalFulfillmentItemRepository->findForFulfillment($fulfillmentId);
+        foreach ($returnedItems as $returnedItem) {
+            assertTrue($returnedItem instanceof RentalFulfillmentItem, 'Returned fulfillment item should be model instance.');
+            $returnedItemData = $returnedItem->toArray();
+            assertSame('damaged', $returnedItemData['return_condition_key'] ?? null, 'Return condition should be saved per item.');
+            assertSame(1, (int) ($returnedItemData['has_return_deviation'] ?? 0), 'Return deviation should be saved.');
+            assertSame('Mindre skada dokumenterad.', $returnedItemData['damage_note'] ?? null, 'Damage note should be saved.');
+        }
+
+        $completedDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($bookingPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        $completedContent = $completedDetail->content();
+        assertTrue(str_contains($completedContent, 'Sen återlämning'), 'Completed detail should show late return indicator.');
+        assertTrue(str_contains($completedContent, 'Repa på hölje.'), 'Completed detail should show return condition note.');
+        assertFalse(str_contains($completedContent, 'Lämna ut'), 'Completed booking should not show handover write action.');
+        assertFalse(str_contains($completedContent, 'Registrera återlämning'), 'Completed booking should not show return write action.');
+        assertFalse(str_contains($completedContent, 'automatisk avgift'), 'Admin fulfillment detail should not display automatic fee text.');
+
+        $duplicateReturnCountBefore = auditCount('rental_return_recorded', 'rental_fulfillment');
+        $duplicateReturn = $router->dispatch(requestWithValidCsrfAndSession(
+            'POST',
+            '/admin/bookings/' . rawurlencode($bookingPublicId) . '/return',
+            $adminToken,
+            [
+                'actual_return_at' => '2038-04-14 10:00:00',
+                'items' => [
+                    $bookingItemId => ['condition_key' => 'good'],
+                ],
+            ]
+        ));
+        assertSame(302, $duplicateReturn->statusCode(), 'Duplicate return should redirect safely.');
+        assertSame($duplicateReturnCountBefore, auditCount('rental_return_recorded', 'rental_fulfillment'), 'Duplicate return should not create another return audit event.');
+
+        $pdo->rollBack();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+});
+
 $runner->test('booking_created creates idempotent customer and admin notifications', static function () use (
     $seederRunner,
     $repository,
@@ -4262,31 +4611,41 @@ $runner->test('admin booking management enforces access, scoped display, transit
             '/admin/bookings/' . rawurlencode($flowPublicId) . '/approve',
             $adminToken
         ));
+        $approvedFlowDetail = $router->dispatch(new Request(
+            'GET',
+            '/admin/bookings/' . rawurlencode($flowPublicId),
+            [],
+            [],
+            $adminCookies,
+            $server
+        ));
+        assertTrue(str_contains($approvedFlowDetail->content(), 'Lämna ut'), 'Approved booking detail should link to handover.');
+        assertTrue(str_contains($approvedFlowDetail->content(), '/admin/bookings/' . rawurlencode($flowPublicId) . '/handover'), 'Approved booking detail should use fulfillment handover route.');
         $startResponse = $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
             '/admin/bookings/' . rawurlencode($flowPublicId) . '/start',
             $adminToken
         ));
-        assertSame(302, $startResponse->statusCode(), 'Approved booking should be startable.');
+        assertSame(302, $startResponse->statusCode(), 'Direct start route should redirect safely.');
         assertSame(
-            'active',
+            'approved',
             $bookingRepository->findByPublicId($flowPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
-            'Approved booking should transition to active.'
+            'Direct start route should not bypass handover fulfillment.'
         );
-        assertSame(1, $auditCount('booking_started', (int) ($flowBooking->toArray()['id'] ?? 0)), 'booking_started audit should be recorded.');
+        assertSame(0, $auditCount('booking_started', (int) ($flowBooking->toArray()['id'] ?? 0)), 'Direct start route should not record booking_started audit.');
 
         $completeResponse = $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
             '/admin/bookings/' . rawurlencode($flowPublicId) . '/complete',
             $adminToken
         ));
-        assertSame(302, $completeResponse->statusCode(), 'Active booking should be completable.');
+        assertSame(302, $completeResponse->statusCode(), 'Direct complete route should redirect safely.');
         assertSame(
-            'completed',
+            'approved',
             $bookingRepository->findByPublicId($flowPublicId, $organizationOneId)?->toArray()['status_key'] ?? null,
-            'Active booking should transition to completed.'
+            'Direct complete route should not bypass return fulfillment.'
         );
-        assertSame(1, $auditCount('booking_completed', (int) ($flowBooking->toArray()['id'] ?? 0)), 'booking_completed audit should be recorded.');
+        assertSame(0, $auditCount('booking_completed', (int) ($flowBooking->toArray()['id'] ?? 0)), 'Direct complete route should not record booking_completed audit.');
 
         $invalidTransitionBooking = $createBooking($adminItem, '2027-06-07', 'Invalid Transition Guest ' . $suffix);
         $invalidTransitionResponse = $router->dispatch(requestWithValidCsrfAndSession(
@@ -4303,16 +4662,13 @@ $runner->test('admin booking management enforces access, scoped display, transit
 
         $activeCancelBooking = $createBooking($adminItem, '2027-06-08', 'Active Cancel Guest ' . $suffix);
         $activeCancelPublicId = (string) ($activeCancelBooking->toArray()['public_id'] ?? '');
+        $statusService = new BookingStatusService($bookingRepository);
         $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
             '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/approve',
             $adminToken
         ));
-        $router->dispatch(requestWithValidCsrfAndSession(
-            'POST',
-            '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/start',
-            $adminToken
-        ));
+        $statusService->transition($organizationOneId, (int) ($activeCancelBooking->toArray()['id'] ?? 0), 'active');
         $activeCancelResponse = $router->dispatch(requestWithValidCsrfAndSession(
             'POST',
             '/admin/bookings/' . rawurlencode($activeCancelPublicId) . '/cancel',

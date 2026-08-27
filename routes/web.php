@@ -7,6 +7,7 @@ use App\Controllers\AdminAvailabilityBlockController;
 use App\Controllers\AdminBookingController;
 use App\Controllers\AdminCustomerController;
 use App\Controllers\AdminNotificationController;
+use App\Controllers\AdminRentalFulfillmentController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
@@ -28,6 +29,7 @@ return static function (Router $router): void {
     $adminCustomerController = AdminCustomerController::fromConfig();
     $adminDashboardController = AdminDashboardController::fromConfig();
     $adminNotificationController = AdminNotificationController::fromConfig();
+    $adminRentalFulfillmentController = AdminRentalFulfillmentController::fromConfig();
     $organizationAdminAssignmentController = OrganizationAdminAssignmentController::fromConfig();
     $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
@@ -97,6 +99,26 @@ return static function (Router $router): void {
     $router->post(
         '/admin/bookings/{public_id}/cancel',
         static fn (Request $request): Response => $adminBookingController->cancel($request),
+        $adminMiddleware
+    );
+    $router->get(
+        '/admin/bookings/{public_id}/handover',
+        static fn (Request $request): Response => $adminRentalFulfillmentController->handover($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/handover',
+        static fn (Request $request): Response => $adminRentalFulfillmentController->storeHandover($request),
+        $adminMiddleware
+    );
+    $router->get(
+        '/admin/bookings/{public_id}/return',
+        static fn (Request $request): Response => $adminRentalFulfillmentController->returnForm($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/bookings/{public_id}/return',
+        static fn (Request $request): Response => $adminRentalFulfillmentController->storeReturn($request),
         $adminMiddleware
     );
     $router->post(
