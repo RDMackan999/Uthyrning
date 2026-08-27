@@ -213,6 +213,24 @@ examples/
 
 De får användas som referens senare, men riktiga databasbeslut ska följa `docs/DATABASE_PRINCIPLES.md`, `docs/DATABASE_NAMING_STANDARD.md` och `docs/DATABASE_DESIGN.md`.
 
+## Media och storage
+
+Media- och bilddomänen ska vara separerad från uthyrningsobjektens kärndata.
+
+Principer:
+
+- Uthyrningsobjekt ska kopplas till bilder via `item_media`, inte genom filvägar på `rental_items`.
+- Filmetadata och storage-nycklar ska ligga i `media_assets`.
+- Genererade bildstorlekar ska ligga i `media_variants`.
+- Databasen ska inte lagra binärdata eller absoluta lokala sökvägar.
+- `storage_disk_key` och `storage_key` ska användas så att lokal storage senare kan bytas mot exempelvis S3 eller CDN utan att objektmodellen skrivs om.
+- Publika vyer ska exponera genererade eller proxyade URL:er, aldrig serverns filesystem paths eller interna storage keys.
+- Lokal utveckling kan använda privat katalog under `storage/`, men faktisk sökväg ska ägas av storage-lagret.
+- Media ska alltid vara `organization`-scopad och åtkomst ska följa samma tenant-regler som objekt.
+- Uppladdning ska valideras i backend och audit-loggas när auditflödet finns.
+
+Sprint 10A designar detta. Ingen extern storage-provider, uppladdningscontroller eller filhantering implementeras i designsprinten.
+
 ## Målarkitektur
 
 Den långsiktiga plattformen ska byggas som en PHP 8.x-applikation med MySQL eller MariaDB och PDO.

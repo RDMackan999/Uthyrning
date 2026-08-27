@@ -1048,6 +1048,54 @@ PDF, digital signering, BankID, Swish, Fortnox, automatisk förseningsavgift, sk
 
 ---
 
+# Beslut 0023
+
+## Datum
+
+2026-08-27
+
+## Status
+
+Accepted
+
+## Titel
+
+Media- och bilddomän för Version 1
+
+## Beslut
+
+Version 1 ska modellera objektbilder genom en separat media-domän.
+
+`media_assets` är källan till filmetadata, ägarskap, checksumma och storage keys.
+
+`media_variants` beskriver genererade bildstorlekar som `thumbnail`, `card` och `detail`.
+
+`item_media` kopplar uthyrningsobjekt till bilder och äger sortering samt huvudbildsmarkering.
+
+Databasen ska inte lagra binärdata eller absoluta filesystem paths. Den ska lagra `storage_disk_key` och `storage_key` så att lokal storage kan ersättas eller kompletteras med S3/CDN senare.
+
+Media ska vara `organization`-scopad. Objektmedia måste tillhöra samma organisation som objektet. `system_admin` får följa global access-policy, men cross-tenant-åtkomst ska audit-loggas när auditflödet finns.
+
+Huvudbildens source of truth är `item_media.is_primary`. Det får finnas högst en aktiv huvudbild per objekt. Om ingen huvudbild är markerad används första aktiva bild enligt sortering som fallback.
+
+Tillåtna bildformat i Version 1 är JPEG, PNG och WebP. Max filstorlek är 8 MB per bild om inget annat dokumenterat beslut tas. Publicerade bildvarianter ska minimera EXIF och privat metadata.
+
+Att ta bort en bild från ett objekt ska i första hand soft delete:a eller inaktivera relationen i `item_media`. Fysisk filradering ska separeras från logisk arkivering och hanteras av en senare säker cleanup-process.
+
+## Motivering
+
+En separat media-domän hindrar att objektmodellen fylls med filpaths, gör framtida marknadsplats enklare och förbereder stöd för dokument, besiktningsbilder, servicebilder, extern storage och CDN.
+
+Huvudbild via relationstabell gör det möjligt att ha flera bilder per objekt utan att duplicera filmetadata eller låsa objektet till en viss lagringslösning.
+
+## Konsekvens
+
+Sprint 10B bör implementera foundation för media och säker uppladdning enligt denna design.
+
+Dokument, PDF, video, skadebilder, servicebilder, OCR, AI-bildanalys, S3/CDN och avancerad bildmoderering skjuts upp till separata sprintar.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

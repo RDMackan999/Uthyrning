@@ -709,7 +709,21 @@ Varje objekt kan ha:
 - huvudbild
 - flera detaljbilder
 
-Huvudbild används i sökresultat.
+Huvudbild används i objektlistor, sökresultat och som första bild på objektdetaljen.
+
+Version 1-beslut:
+
+- Bilder är rekommenderade men ska inte vara tekniskt obligatoriska för att spara ett objekt.
+- Om ett publikt objekt saknar bild ska gränssnittet visa en neutral fallback-bild eller placeholder.
+- Ett objekt får ha högst en aktiv huvudbild.
+- Om ingen aktiv huvudbild är markerad används första aktiva bilden enligt sorteringsordning som fallback.
+- Endast aktiva, icke arkiverade och icke soft delete:ade bildrelationer får visas publikt.
+- Bilder ska tillhöra samma organisation som objektet.
+- Administratör får lägga till, sortera, välja huvudbild och ta bort koppling mellan objekt och bild när mediaflödet byggs.
+- Att ta bort en bild från ett objekt ska vara logisk arkivering eller soft delete av relationen, inte permanent filradering.
+- Publika vyer får inte visa originalfilnamn, interna id:n, storage paths, checksumma eller uppladdningsmetadata.
+- Tillåtna bildformat i Version 1 ska vara JPEG, PNG och WebP.
+- Dokument, PDF, video, skadebilder, servicebilder, OCR och AI-bildanalys skjuts upp till separata sprintar.
 
 ---
 

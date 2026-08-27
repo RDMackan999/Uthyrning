@@ -1653,11 +1653,159 @@ Syfte:
 
 - Hantera bilder och filer separat från affärsobjekt.
 - Stödja flera användningsområden utan duplicerad filinformation.
+- Ge Version 1 stöd för bilder på uthyrningsobjekt utan att lagra filvägar direkt på `rental_items`.
+- Förbereda dokument, besiktningsbilder, servicebilder och framtida extern storage utan att bygga dessa funktioner nu.
 
 Relationer:
 
 - Media ägs av organisation.
 - Objekt, besiktningar, service och dokument länkar till media via länktabeller.
+- Version 1 kopplar objektbilder via `item_media`.
+- `media_assets.organization_id` ska referera `organizations.id`.
+- `media_assets.uploaded_by_user_id` ska referera `users.id` när uppladdningen görs av inloggad administratör.
+- `item_media.rental_item_id` ska referera `rental_items.id`.
+- `item_media.media_asset_id` ska referera `media_assets.id`.
+
+#### Sprint 10A: Media- och bilddesign
+
+Rekommenderad V1-modell:
+
+- `media_assets`: en rad per uppladdad fil eller framtida normaliserad masterfil.
+- `media_variants`: en rad per genererad variant, till exempel thumbnail, list/card och detail.
+- `item_media`: relation mellan uthyrningsobjekt och media.
+
+`media_assets` ska vara den tekniska källan till filmetadata, ägarskap och lagringsnyckel. Tabellen ska inte innehålla binärdata.
+
+Rekommenderade fält för `media_assets`:
+
+- `id`
+- `organization_id`
+- `media_type_key`, till exempel `image` eller senare `document`
+- `mime_type`
+- `original_filename`
+- `storage_disk_key`, till exempel `local` i development och senare `s3`
+- `storage_key`
+- `checksum_sha256`
+- `file_size_bytes`
+- `width` nullable
+- `height` nullable
+- `uploaded_by_user_id` nullable
+- `is_active`
+- `archived_at` nullable
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Rekommenderade fält för `media_variants`:
+
+- `id`
+- `media_asset_id`
+- `variant_key`, till exempel `thumbnail`, `card`, `detail`
+- `mime_type`
+- `storage_disk_key`
+- `storage_key`
+- `file_size_bytes`
+- `width`
+- `height`
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Rekommenderade fält för `item_media`:
+
+- `id`
+- `organization_id`
+- `rental_item_id`
+- `media_asset_id`
+- `sort_order`
+- `is_primary`
+- `is_active`
+- `created_at`
+- `updated_at`
+- `deleted_at`
+
+Ownership och scope:
+
+- Media ska alltid vara `organization`-scopad.
+- I Version 1 ska objektmedia tillhöra samma `organization_id` som objektet.
+- `organization_admin` får endast hantera media för objekt inom sina tillåtna organisationer.
+- `system_admin` får följa befintlig global access-policy och sådan åtkomst ska audit-loggas.
+- Klientens `organization_id`, filnamn, MIME-typ och storage path får aldrig vara källa till sanning.
+
+Cover image:
+
+- Source of truth för huvudbild är `item_media.is_primary`.
+- Det får finnas högst en aktiv huvudbild per `rental_item_id`.
+- Rekommenderad databasregel är ett unikt index eller motsvarande constraint för aktiv primär relation när databasmotorn stödjer det tydligt.
+- Om ingen aktiv explicit huvudbild finns ska fallback vara den aktiva relationen med lägst `sort_order`, därefter lägst `id`.
+- Arkiverad, inaktiv eller soft delete:ad mediarelation får inte användas som huvudbild.
+- Byte av huvudbild ska göras atomiskt i applikationslagret, helst i transaction: först nollställ aktiv primär relation för objektet och sätt därefter vald relation som primär.
+
+Index:
+
+- Index på `media_assets(organization_id, media_type_key, is_active)`.
+- Index på `media_assets(storage_disk_key, storage_key)`.
+- Unikt index på `media_assets(checksum_sha256)` bör övervägas senare men ska inte tvinga global deduplicering i Version 1.
+- Index på `item_media(organization_id, rental_item_id)`.
+- Index på `item_media(media_asset_id)`.
+- Index på `item_media(rental_item_id, is_active, sort_order)`.
+- Unik regel för aktiv primärbild per objekt bör införas när implementationen görs.
+
+Storage-strategi:
+
+- Databasen ska lagra stabila storage keys, inte absoluta lokala sökvägar.
+- Lokal development storage kan använda en privat katalog under `storage/`, exempelvis för original och varianter, men fysisk path ska byggas av storage-lagret.
+- `storage_disk_key` beskriver vilken adapter som äger filen, till exempel `local` eller senare `s3`.
+- `storage_key` ska vara servergenererad, slumpmässig och relativ inom vald storage-adapter.
+- Publika URL:er ska genereras av applikationen eller storage-adaptern och får inte sparas som absoluta Windows-/serverpaths.
+- Rental item-domänen ska endast känna till `media_asset_id` och relationer, inte fysisk lagringsplats.
+
+Upload-policy för Version 1:
+
+- Tillåt endast bildformaten JPEG, PNG och WebP.
+- GIF, SVG, TIFF, HEIC, video, PDF och dokument ska skjutas upp eller hanteras i separat dokument-/media-sprint.
+- Max filstorlek rekommenderas till 8 MB per bild i Version 1.
+- Max bilddimension rekommenderas till 6000 x 6000 pixlar före normalisering.
+- MIME-typ ska verifieras serverside genom filinnehåll, inte bara klientens `Content-Type`.
+- Filändelse ska vitlistas men räcker inte som säkerhetskontroll.
+- Filnamn ska alltid ersättas med servergenererad storage key.
+- Originalfilnamn får sparas som metadata för admin, men ska inte användas som path.
+- Path traversal ska blockeras genom att aldrig acceptera katalogdelar från klienten.
+- Uppladdade filer får inte kunna köras som PHP eller andra exekverbara filer.
+- EXIF och annan metadata ska tas bort eller minimeras i publika bildvarianter för att minska privacy-risk.
+- Felmeddelanden ska vara generella och inte exponera lokala paths, stack traces eller storage-konfiguration.
+
+Image processing:
+
+- Version 1 bör spara en säker master eller normaliserad originalbild samt generera tre varianter:
+  - `thumbnail` för adminöversikt.
+  - `card` för publik objektlista.
+  - `detail` för objektdetalj och galleri.
+- Varianter ska kopplas till `media_assets` via `media_variants`.
+- WebP-konvertering är rekommenderad som framtida förbättring men bör inte krävas i första foundation om PHP-miljön saknar stabil bildhantering.
+- Originalformatet ska endast exponeras publikt om filen har validerats och lagras säkert.
+
+Delete och archive:
+
+- Att ta bort en bild från ett objekt ska i första hand soft delete:a eller inaktivera relationen i `item_media`.
+- Arkivering av `media_assets` betyder att filen inte längre ska användas i nya publika sammanhang.
+- Fysisk radering av fil ska vara separat från logisk arkivering och bör hanteras av en senare säker cleanup-process.
+- Fysisk radering får inte ske om media fortfarande är kopplat till historik, besiktning, service, bokning, avtal eller annat revisionsbehov.
+- Rental item soft delete ska inte ta bort media permanent. Relationer ska bevaras för adminhistorik och framtida audit.
+
+Publik exponering:
+
+- Publika vyer ska endast exponera genererade bild-URL:er eller proxy-URL:er, aldrig lokala filesystem-paths eller storage keys.
+- Objektlista använder huvudbildens `card`-variant.
+- Objektdetalj använder huvudbild och galleri med `detail`-variant.
+- Om bild saknas ska publik vy använda säker fallback-bild eller neutral placeholder.
+- Publika vyer ska inte visa original filename, uppladdad av, checksum, storage disk, storage key eller intern metadata.
+
+Dokumentförberedelse:
+
+- Samma `media_assets` och storage-abstraktion kan senare användas för manualer, instruktioner, PDF, besiktningsdokument och serviceunderlag.
+- Dokument ska dock få egna dokumenttabeller eller länktabeller när dokumentfunktioner byggs, så att kritiska relationer och dokumenttyper inte blandas ihop med objektbilder.
+- PDF, dokumentadmin, OCR och AI-bildanalys ingår inte i Sprint 10A.
 
 Framtida utbyggnad:
 

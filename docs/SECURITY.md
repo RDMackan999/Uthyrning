@@ -251,6 +251,41 @@ Filer ska lagras utanför publik webbrot när möjligt.
 
 PHP-filer får aldrig kunna laddas upp eller köras.
 
+## Bildpolicy för Version 1
+
+Tillåt endast:
+
+- JPEG
+- PNG
+- WebP
+
+Tillåt inte i första bildflödet:
+
+- SVG
+- GIF
+- TIFF
+- HEIC
+- video
+- PDF
+- Office-dokument
+- PHP eller andra exekverbara filer
+
+Säkerhetskrav:
+
+- Max filstorlek ska vara 8 MB per bild om inget annat beslut dokumenteras.
+- Max bilddimension ska vara 6000 x 6000 pixlar före normalisering.
+- MIME-typ ska verifieras från filinnehåll på serversidan.
+- Filändelse ska vitlistas men får aldrig vara enda kontroll.
+- Uppladdat filnamn får endast sparas som metadata och aldrig användas som faktisk storage path.
+- Storage key ska genereras av servern och vara svår att gissa.
+- Klientinskickad katalog, path, `organization_id`, MIME-typ eller filstorlek får inte vara källa till sanning.
+- EXIF och annan privat metadata ska tas bort eller minimeras i publika bildvarianter.
+- Uppladdade filer ska lagras så att de inte kan köras av webbservern.
+- Publika bild-URL:er ska genereras av applikation eller storage-adapter och får inte exponera lokala sökvägar.
+- Felmeddelanden ska vara generella och inte läcka paths, storage-konfiguration, stack traces eller interna id:n.
+- Mediaåtkomst ska kontrolleras mot organisation och roll innan admin kan visa eller ändra filer.
+- Cross-tenant-åtkomst ska behandlas som säkerhetsfel och audit-loggas när auditflödet finns.
+
 Metadata ska sparas:
 
 - uppladdad av
