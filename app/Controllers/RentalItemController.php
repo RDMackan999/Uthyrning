@@ -12,6 +12,7 @@ use App\Core\Response;
 use App\Http\RentalItemFormRequest;
 use App\Models\RentalItem;
 use App\Repositories\CategoryRepository;
+use App\Repositories\ItemMediaRepository;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\RentalItemRepository;
 use App\Services\OrganizationAuthorizationService;
@@ -29,6 +30,7 @@ final class RentalItemController extends BaseController
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
         private readonly OrganizationRepository $organizationRepository = new OrganizationRepository(),
         private readonly CategoryRepository $categoryRepository = new CategoryRepository(),
+        private readonly ItemMediaRepository $itemMediaRepository = new ItemMediaRepository(),
         private readonly RentalItemFormRequest $formRequest = new RentalItemFormRequest(),
         private readonly RentalItemPublicationService $publicationService = new RentalItemPublicationService(),
         private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
@@ -50,6 +52,7 @@ final class RentalItemController extends BaseController
             $rentalItemRepository,
             new OrganizationRepository(),
             new CategoryRepository(),
+            new ItemMediaRepository(),
             new RentalItemFormRequest($rentalItemRepository),
             new RentalItemPublicationService($rentalItemRepository),
             new OrganizationAuthorizationService()
@@ -234,9 +237,14 @@ final class RentalItemController extends BaseController
         array $errors = [],
         ?string $message = null
     ): Response {
+        $itemData = $item->toArray();
+
         return $this->viewWithLayout('admin/items/edit', 'layouts/admin', $this->formViewData($request, $data, $errors) + [
             'pageTitle' => 'Redigera objekt',
-            'item' => $item->toArray(),
+            'item' => $itemData,
+            'mediaItems' => $this->itemMediaRepository
+                ->findForItem((int) ($itemData['organization_id'] ?? 0), (int) ($itemData['id'] ?? 0))
+                ->toArray(),
             'message' => $message,
         ]);
     }
@@ -354,6 +362,28 @@ final class RentalItemController extends BaseController
 
     private function savedMessage(Request $request): ?string
     {
+        $mediaMessage = match ($request->query('media')) {
+            'uploaded' => 'Bilden har laddats upp.',
+            'primary' => 'Primärbilden har uppdaterats.',
+            'sorted' => 'Bildordningen har sparats.',
+            'archived' => 'Bilden har arkiverats.',
+            default => null,
+        };
+
+        if ($mediaMessage !== null) {
+            return $mediaMessage;
+        }
+
+        $mediaError = match ($request->query('media_error')) {
+            'csrf' => 'Bildåtgärden kunde inte verifieras. Försök igen.',
+            'upload' => 'Bilden kunde inte sparas. Kontrollera format och storlek.',
+            default => null,
+        };
+
+        if ($mediaError !== null) {
+            return $mediaError;
+        }
+
         return match ($request->query('saved')) {
             '1' => 'Objektet har sparats.',
             'published' => 'Objektet har publicerats.',

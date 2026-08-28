@@ -32,4 +32,25 @@ return [
             'timeout_seconds' => 10,
         ],
     ],
+    'media' => [
+        'storage_disk' => 'local',
+        'local_root' => 'storage/media',
+        'max_file_size_bytes' => 8388608,
+        'max_width' => 6000,
+        'max_height' => 6000,
+        'variants' => [
+            'thumbnail' => [
+                'width' => 320,
+                'height' => 240,
+            ],
+            'card' => [
+                'width' => 800,
+                'height' => 600,
+            ],
+            'detail' => [
+                'width' => 1600,
+                'height' => 1200,
+            ],
+        ],
+    ],
 ];

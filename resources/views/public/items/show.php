@@ -1,6 +1,7 @@
 <?php
 
 $item = is_array($item ?? null) ? $item : [];
+$images = is_array($images ?? null) ? $images : [];
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $stringValue = static fn (mixed $value): string => is_scalar($value) ? trim((string) $value) : '';
@@ -40,6 +41,24 @@ $bookingUrl = $publicId !== '' && $slug !== ''
                 <p><?= $escape($shortName) ?></p>
             <?php endif; ?>
         </div>
+
+        <?php if ($images !== []): ?>
+            <div class="public-detail-gallery" aria-label="Objektbilder">
+                <?php foreach ($images as $image): ?>
+                    <?php if (!is_array($image)) {
+                        continue;
+                    } ?>
+                    <?php $imageUrl = $stringValue($image['url'] ?? ''); ?>
+                    <?php if ($imageUrl !== ''): ?>
+                        <img
+                            src="<?= $escape($imageUrl) ?>"
+                            alt="<?= $escape($name) ?>"
+                            loading="lazy"
+                        >
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
 
         <div class="public-detail-grid">
             <div>

@@ -29,6 +29,7 @@ final class Request
      * @param array<string, mixed> $post
      * @param array<string, mixed> $cookies
      * @param array<string, mixed> $server
+     * @param array<string, mixed> $files
      */
     public function __construct(
         private readonly string $method,
@@ -37,6 +38,7 @@ final class Request
         private readonly array $post = [],
         private readonly array $cookies = [],
         private readonly array $server = [],
+        private readonly array $files = [],
     ) {
     }
 
@@ -52,6 +54,7 @@ final class Request
             $_POST,
             $_COOKIE,
             $_SERVER,
+            $_FILES,
         );
     }
 
@@ -121,6 +124,20 @@ final class Request
         }
 
         return $this->cookies[$key] ?? $default;
+    }
+
+    /**
+     * Read uploaded files, or return all file data when key is omitted.
+     *
+     * @return mixed
+     */
+    public function files(?string $key = null, mixed $default = null): mixed
+    {
+        if ($key === null) {
+            return $this->files;
+        }
+
+        return $this->files[$key] ?? $default;
     }
 
     /**

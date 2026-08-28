@@ -7,6 +7,7 @@ use App\Core\BookingException;
 use App\Core\Config;
 use App\Core\Database;
 use App\Core\MigrationRunner;
+use App\Core\MediaException;
 use App\Core\ModelException;
 use App\Core\NotFoundException;
 use App\Core\NotificationException;
@@ -23,7 +24,10 @@ use App\Models\Booking;
 use App\Models\BookingItem;
 use App\Models\Category;
 use App\Models\ItemAvailabilityBlock;
+use App\Models\ItemMedia;
 use App\Models\ItemRate;
+use App\Models\MediaAsset;
+use App\Models\MediaVariant;
 use App\Models\Notification;
 use App\Models\RentalItem;
 use App\Models\RentalFulfillmentItem;
@@ -32,7 +36,10 @@ use App\Repositories\BookingRepository;
 use App\Repositories\CategoryRepository;
 use App\Repositories\CustomerRepository;
 use App\Repositories\ItemAvailabilityBlockRepository;
+use App\Repositories\ItemMediaRepository;
 use App\Repositories\ItemRateRepository;
+use App\Repositories\MediaAssetRepository;
+use App\Repositories\MediaVariantRepository;
 use App\Repositories\NotificationAttemptRepository;
 use App\Repositories\NotificationRepository;
 use App\Repositories\RentalFulfillmentItemRepository;
@@ -50,6 +57,10 @@ use App\Services\Email\DevelopmentEmailTransport;
 use App\Services\Email\EmailTransportFactory;
 use App\Services\Email\EmailMessage;
 use App\Services\Email\SmtpEmailTransport;
+use App\Services\Media\ImageProcessingService;
+use App\Services\Media\ImageValidationService;
+use App\Services\Media\ItemMediaService;
+use App\Services\Media\LocalMediaStorage;
 use App\Services\NotificationDispatcher;
 use App\Services\NotificationService;
 use App\Services\NotificationTemplateService;
@@ -387,6 +398,147 @@ function requestWithValidCsrfAndSession(string $method, string $uri, string $ses
     ]);
 }
 
+function requestWithValidCsrfSessionAndFiles(
+    string $method,
+    string $uri,
+    string $sessionToken,
+    array $post,
+    array $files
+): Request {
+    $request = requestWithValidCsrfAndSession($method, $uri, $sessionToken, $post);
+
+    return new Request(
+        $method,
+        $uri,
+        [],
+        $request->post(),
+        $request->cookie(),
+        [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ],
+        $files
+    );
+}
+
+function createTestImage(string $mimeType = 'image/jpeg', int $width = 64, int $height = 48): string
+{
+    if (!extension_loaded('gd')) {
+        throw new RuntimeException('GD extension is required for media tests.');
+    }
+
+    $directory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp';
+
+    if (!is_dir($directory)) {
+        mkdir($directory, 0775, true);
+    }
+
+    $extension = match ($mimeType) {
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        default => 'jpg',
+    };
+    $path = $directory . DIRECTORY_SEPARATOR . 'test-image-' . bin2hex(random_bytes(8)) . '.' . $extension;
+    $image = imagecreatetruecolor($width, $height);
+
+    if (!$image instanceof GdImage) {
+        throw new RuntimeException('Test image could not be created.');
+    }
+
+    $background = imagecolorallocate($image, 42, 92, 128);
+    imagefilledrectangle($image, 0, 0, $width, $height, $background);
+
+    $saved = match ($mimeType) {
+        'image/png' => imagepng($image, $path),
+        'image/webp' => function_exists('imagewebp') ? imagewebp($image, $path, 85) : false,
+        default => imagejpeg($image, $path, 85),
+    };
+    imagedestroy($image);
+
+    if (!$saved || !is_file($path)) {
+        throw new RuntimeException('Test image could not be saved.');
+    }
+
+    return $path;
+}
+
+function uploadedImageArray(string $path, string $name, string $mimeType): array
+{
+    return [
+        'name' => $name,
+        'type' => $mimeType,
+        'tmp_name' => $path,
+        'error' => UPLOAD_ERR_OK,
+        'size' => filesize($path) ?: 0,
+    ];
+}
+
+function uploadedImagesArray(array $files): array
+{
+    $normalized = [
+        'name' => [],
+        'type' => [],
+        'tmp_name' => [],
+        'error' => [],
+        'size' => [],
+    ];
+
+    foreach ($files as $file) {
+        $normalized['name'][] = $file['name'];
+        $normalized['type'][] = $file['type'];
+        $normalized['tmp_name'][] = $file['tmp_name'];
+        $normalized['error'][] = $file['error'];
+        $normalized['size'][] = $file['size'];
+    }
+
+    return $normalized;
+}
+
+function removeStorageKeys(array $storageKeys): void
+{
+    $storage = new LocalMediaStorage();
+
+    foreach ($storageKeys as $storageKey) {
+        if (is_string($storageKey) && $storageKey !== '') {
+            $storage->delete($storageKey);
+        }
+    }
+}
+
+function storageKeysForOrganizations(array $organizationIds): array
+{
+    $ids = array_values(array_filter(array_map(static fn (mixed $id): int => (int) $id, $organizationIds)));
+
+    if ($ids === []) {
+        return [];
+    }
+
+    $assetPlaceholders = [];
+    $variantPlaceholders = [];
+    $params = [];
+
+    foreach ($ids as $index => $organizationId) {
+        $assetName = 'asset_organization_id_' . $index;
+        $variantName = 'variant_organization_id_' . $index;
+        $assetPlaceholders[] = ':' . $assetName;
+        $variantPlaceholders[] = ':' . $variantName;
+        $params[$assetName] = $organizationId;
+        $params[$variantName] = $organizationId;
+    }
+
+    $sql = 'SELECT storage_key FROM media_assets WHERE organization_id IN (' . implode(', ', $assetPlaceholders) . ')
+        UNION ALL
+        SELECT media_variants.storage_key
+        FROM media_variants
+        INNER JOIN media_assets ON media_assets.id = media_variants.media_asset_id
+        WHERE media_assets.organization_id IN (' . implode(', ', $variantPlaceholders) . ')';
+    $statement = pdo()->prepare($sql);
+    $statement->execute($params);
+    $rows = $statement->fetchAll(PDO::FETCH_COLUMN);
+
+    return is_array($rows) ? $rows : [];
+}
+
 /**
  * @param list<int> $organizationAdminIds
  * @return array{user_id: int, token: string}
@@ -618,6 +770,9 @@ $bookingStatusService = new BookingStatusService();
 $rentalFulfillmentRepository = new RentalFulfillmentRepository();
 $rentalFulfillmentItemRepository = new RentalFulfillmentItemRepository();
 $rentalFulfillmentService = new RentalFulfillmentService();
+$mediaAssetRepository = new MediaAssetRepository();
+$mediaVariantRepository = new MediaVariantRepository();
+$itemMediaRepository = new ItemMediaRepository();
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
@@ -808,6 +963,295 @@ $runner->test('migrations create rental fulfillment foundation tables', static f
     assertFalse(columnDataType('rental_fulfillments', 'deposit_status_key') === 'enum', 'Deposit statuses should not use ENUM.');
     assertFalse(columnDataType('rental_fulfillment_items', 'handover_condition_key') === 'enum', 'Handover conditions should not use ENUM.');
     assertFalse(columnDataType('rental_fulfillment_items', 'return_condition_key') === 'enum', 'Return conditions should not use ENUM.');
+});
+
+$runner->test('migrations create media image foundation tables', static function () use ($migrationRunner): void {
+    $migrationRunner->run();
+
+    assertTrue(tableExists('media_assets'), 'media_assets table should exist.');
+    assertTrue(tableExists('media_variants'), 'media_variants table should exist.');
+    assertTrue(tableExists('item_media'), 'item_media table should exist.');
+
+    foreach ([
+        'id',
+        'public_id',
+        'organization_id',
+        'media_type_key',
+        'mime_type',
+        'original_filename',
+        'storage_disk_key',
+        'storage_key',
+        'checksum_sha256',
+        'file_size_bytes',
+        'width',
+        'height',
+        'uploaded_by_user_id',
+        'is_active',
+        'archived_at',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('media_assets'), true), $column . ' should exist on media_assets.');
+    }
+
+    foreach ([
+        'id',
+        'media_asset_id',
+        'variant_key',
+        'mime_type',
+        'storage_disk_key',
+        'storage_key',
+        'file_size_bytes',
+        'width',
+        'height',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('media_variants'), true), $column . ' should exist on media_variants.');
+    }
+
+    foreach ([
+        'id',
+        'organization_id',
+        'rental_item_id',
+        'media_asset_id',
+        'sort_order',
+        'is_primary',
+        'is_active',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ] as $column) {
+        assertTrue(in_array($column, columnsFor('item_media'), true), $column . ' should exist on item_media.');
+    }
+
+    assertTrue(indexExists('media_assets', 'uniq_media_assets_public_id'), 'Media public id unique index missing.');
+    assertTrue(indexExists('media_variants', 'uniq_media_variants_asset_variant'), 'Media variant unique index missing.');
+    assertTrue(indexExists('item_media', 'idx_item_media_item_primary'), 'Item primary image lookup index missing.');
+    assertTrue(foreignKeyExists('media_assets', 'organizations'), 'media_assets should reference organizations.');
+    assertTrue(foreignKeyExists('media_assets', 'users'), 'media_assets should reference users.');
+    assertTrue(foreignKeyExists('media_variants', 'media_assets'), 'media_variants should reference media_assets.');
+    assertTrue(foreignKeyExists('item_media', 'organizations'), 'item_media should reference organizations.');
+    assertTrue(foreignKeyExists('item_media', 'rental_items'), 'item_media should reference rental_items.');
+    assertTrue(foreignKeyExists('item_media', 'media_assets'), 'item_media should reference media_assets.');
+    assertFalse(columnDataType('media_assets', 'media_type_key') === 'enum', 'Media types should not use ENUM.');
+    assertFalse(columnDataType('media_variants', 'variant_key') === 'enum', 'Media variants should not use ENUM.');
+});
+
+$runner->test('media image services validate, process, scope and deliver item images safely', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository,
+    $mediaAssetRepository,
+    $mediaVariantRepository,
+    $itemMediaRepository
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $sourceImages = [];
+    $storedKeys = [];
+    $organizationIds = [];
+    $pdo->beginTransaction();
+
+    try {
+        $organizationId = createOrganization('Media Org ' . $suffix, 'media-org-' . $suffix);
+        $otherOrganizationId = createOrganization('Media Other Org ' . $suffix, 'media-other-org-' . $suffix);
+        $organizationIds = [$organizationId, $otherOrganizationId];
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for media tests.');
+        $categoryId = (int) $globalCategory->toArray()['id'];
+        $item = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'media-item-' . $suffix,
+            'Media Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        createBookableRentalItem(
+            $otherOrganizationId,
+            $categoryId,
+            'media-other-item-' . $suffix,
+            'Media Other Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+
+        $adminSession = createAuthenticatedTestUser(false, [$organizationId]);
+        $otherAdminSession = createAuthenticatedTestUser(false, [$otherOrganizationId]);
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_USER_AGENT' => 'Uthyrning test runner',
+        ];
+        $request = new Request('POST', '/admin/items/' . ($item->toArray()['public_id'] ?? '') . '/media', [], [], [], $server);
+        $request->setAuthenticatedUserId($adminSession['user_id']);
+
+        $jpeg = createTestImage('image/jpeg', 90, 60);
+        $png = createTestImage('image/png', 80, 80);
+        $sourceImages[] = $jpeg;
+        $sourceImages[] = $png;
+        $invalidPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp'
+            . DIRECTORY_SEPARATOR . 'not-an-image-' . $suffix . '.jpg';
+        file_put_contents($invalidPath, 'not an image');
+        $sourceImages[] = $invalidPath;
+
+        $validationService = new ImageValidationService();
+        $safeMetadata = $validationService->validate(uploadedImageArray($jpeg, '..\\private\\danger.jpg', 'image/jpeg'));
+        assertSame('danger.jpg', $safeMetadata['original_filename'], 'Original file name should be reduced to a safe basename.');
+        assertSame('image/jpeg', $safeMetadata['mime_type'], 'JPEG MIME should be detected from file content.');
+        assertThrows(
+            static fn () => $validationService->validate(uploadedImageArray($invalidPath, 'fake.jpg', 'image/jpeg')),
+            MediaException::class,
+            'Invalid image bytes should be rejected.'
+        );
+
+        $processed = (new ImageProcessingService())->createVariants($jpeg, 'image/jpeg');
+        assertSame(['thumbnail', 'card', 'detail'], array_keys($processed), 'Configured image variants should be created.');
+        assertTrue($processed['thumbnail']['width'] <= 90, 'Thumbnail should not upscale source width.');
+        assertTrue($processed['thumbnail']['height'] <= 60, 'Thumbnail should not upscale source height.');
+        foreach ($processed as $variant) {
+            if (is_file($variant['path'])) {
+                @unlink($variant['path']);
+            }
+        }
+
+        $service = new ItemMediaService();
+        $createdAssets = $service->uploadImages($request, $item, uploadedImagesArray([
+            uploadedImageArray($jpeg, '..\\private\\danger.jpg', 'image/jpeg'),
+            uploadedImageArray($png, 'second.png', 'image/png'),
+        ]));
+        assertSame(2, count($createdAssets), 'Two media assets should be created.');
+        assertTrue($createdAssets[0]['public_id'] !== $createdAssets[1]['public_id'], 'Each media asset should have a unique public id.');
+
+        $storageRows = $pdo->query(
+            'SELECT storage_key FROM media_assets WHERE organization_id = ' . $organizationId
+            . ' UNION ALL SELECT media_variants.storage_key FROM media_variants INNER JOIN media_assets ON media_assets.id = media_variants.media_asset_id WHERE media_assets.organization_id = ' . $organizationId
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $storedKeys = is_array($storageRows) ? $storageRows : [];
+
+        assertSame(8, count($storedKeys), 'Two originals and six variants should be stored.');
+        foreach ($storedKeys as $storageKey) {
+            assertTrue(is_string($storageKey), 'Storage key should be a string.');
+            assertFalse(str_contains($storageKey, 'danger'), 'Storage key should not contain the original filename.');
+            assertFalse(str_contains($storageKey, '..'), 'Storage key should not contain traversal segments.');
+            assertTrue((new LocalMediaStorage())->exists($storageKey), 'Stored media file should exist before archive.');
+        }
+
+        $relations = $itemMediaRepository->findForItem($organizationId, (int) ($item->toArray()['id'] ?? 0))->toArray();
+        assertSame(2, count($relations), 'Item should have two active media relations.');
+        assertSame(1, count(array_filter($relations, static fn (array $row): bool => (int) ($row['is_primary'] ?? 0) === 1)), 'Only one image should be primary.');
+
+        $secondPublicId = (string) ($createdAssets[1]['public_id'] ?? '');
+        $service->setPrimary($request, $item, $secondPublicId);
+        $relationsAfterPrimary = $itemMediaRepository->findForItem($organizationId, (int) ($item->toArray()['id'] ?? 0))->toArray();
+        assertSame(1, count(array_filter($relationsAfterPrimary, static fn (array $row): bool => (int) ($row['is_primary'] ?? 0) === 1)), 'Setting primary should keep one primary image.');
+        assertSame($secondPublicId, (string) ($relationsAfterPrimary[0]['media_public_id'] ?? ''), 'Primary image should sort first.');
+
+        $service->updateSortOrder($request, $item, [
+            $secondPublicId => 7,
+        ]);
+        assertSame(7, (int) ($itemMediaRepository->findActiveRelationByMediaPublicId(
+            $organizationId,
+            (int) ($item->toArray()['id'] ?? 0),
+            $secondPublicId
+        )->toArray()['sort_order'] ?? -1), 'Sort order should update for active media.');
+
+        $firstPublicId = (string) ($createdAssets[0]['public_id'] ?? '');
+        $service->archive($request, $item, $firstPublicId);
+        assertSame(1, $itemMediaRepository->findForItem($organizationId, (int) ($item->toArray()['id'] ?? 0))->count(), 'Archived media should leave active admin list.');
+        assertThrows(
+            static fn () => $itemMediaRepository->findActiveRelationByMediaPublicId(
+                $organizationId,
+                (int) ($item->toArray()['id'] ?? 0),
+                $firstPublicId
+            ),
+            ModelException::class,
+            'Archived item media should not be found as active.'
+        );
+        assertSame(0, (int) ($mediaAssetRepository->findByPublicId($firstPublicId)?->toArray()['is_active'] ?? 1), 'Archived media asset should be inactive.');
+        assertTrue(auditCount('item_media_uploaded', 'rental_item') >= 1, 'Upload should be audited.');
+        assertTrue(auditCount('item_media_primary_set', 'rental_item') >= 1, 'Primary change should be audited.');
+        assertTrue(auditCount('item_media_sorted', 'rental_item') >= 1, 'Sort change should be audited.');
+        assertTrue(auditCount('item_media_archived', 'rental_item') >= 1, 'Archive should be audited.');
+
+        assertTrue($mediaAssetRepository->findByPublicId($secondPublicId) instanceof MediaAsset, 'MediaAssetRepository should find active media by public id.');
+        $knownVariantId = (int) $pdo->query('SELECT MIN(id) FROM media_variants')->fetchColumn();
+        assertTrue($mediaVariantRepository->findById($knownVariantId) instanceof MediaVariant, 'MediaVariantRepository should find generated variants.');
+        assertSame('media_assets', MediaAsset::tableName(), 'MediaAsset model table should match.');
+        assertSame('media_variants', MediaVariant::tableName(), 'MediaVariant model table should match.');
+        assertSame('item_media', ItemMedia::tableName(), 'ItemMedia model table should match.');
+
+        $router = new Router();
+        $routes = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+        $publicMedia = $router->dispatch(new Request('GET', '/media/' . rawurlencode($secondPublicId) . '/card'));
+        assertSame(200, $publicMedia->statusCode(), 'Public media route should deliver active public item image.');
+        assertSame('image/png', $publicMedia->headers()['Content-Type'] ?? null, 'Public media should keep image MIME type.');
+        assertFalse(str_contains($publicMedia->content(), 'storage/'), 'Public media response should not expose storage paths.');
+
+        $adminMedia = $router->dispatch(new Request(
+            'GET',
+            '/admin/media/' . rawurlencode($secondPublicId) . '/thumbnail',
+            [],
+            [],
+            ['uthyrning_session' => $adminSession['token']],
+            $server
+        ));
+        assertSame(200, $adminMedia->statusCode(), 'Organization admin should deliver own media thumbnail.');
+
+        $crossTenantMedia = $router->dispatch(new Request(
+            'GET',
+            '/admin/media/' . rawurlencode($secondPublicId) . '/thumbnail',
+            [],
+            [],
+            ['uthyrning_session' => $otherAdminSession['token']],
+            $server
+        ));
+        assertSame(404, $crossTenantMedia->statusCode(), 'Other organization admin should receive safe 404 for media.');
+
+        $itemData = $item->toArray();
+        $publicList = $router->dispatch(new Request('GET', '/items'));
+        assertSame(200, $publicList->statusCode(), 'Public item list should still render.');
+        assertTrue(str_contains($publicList->content(), '/media/' . rawurlencode($secondPublicId) . '/card'), 'Public listing should include cover image URL.');
+        $publicDetail = $router->dispatch(new Request(
+            'GET',
+            '/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/' . rawurlencode((string) ($itemData['slug'] ?? ''))
+        ));
+        assertSame(200, $publicDetail->statusCode(), 'Public item detail should still render.');
+        assertTrue(str_contains($publicDetail->content(), '/media/' . rawurlencode($secondPublicId) . '/detail'), 'Public detail should include detail image URL.');
+
+        $adminUploadRequest = requestWithValidCsrfSessionAndFiles(
+            'POST',
+            '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/media',
+            $adminSession['token'],
+            [],
+            ['images' => uploadedImagesArray([uploadedImageArray($png, 'route-upload.png', 'image/png')])]
+        );
+        $adminUploadResponse = $router->dispatch($adminUploadRequest);
+        assertSame(302, $adminUploadResponse->statusCode(), 'Admin upload route should redirect after safe upload.');
+        $storedKeys = array_values(array_unique(array_merge($storedKeys, storageKeysForOrganizations($organizationIds))));
+    } finally {
+        if ($organizationIds !== []) {
+            $storedKeys = array_values(array_unique(array_merge($storedKeys, storageKeysForOrganizations($organizationIds))));
+        }
+
+        removeStorageKeys($storedKeys);
+
+        foreach ($sourceImages as $sourceImage) {
+            if (is_file($sourceImage)) {
+                @unlink($sourceImage);
+            }
+        }
+
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+    }
 });
 
 $runner->test('rental fulfillment service records handover and return safely', static function () use (

@@ -10,6 +10,7 @@ $formAction = is_string($formAction ?? null) ? $formAction : '/admin/items';
 $formTitle = is_string($formTitle ?? null) ? $formTitle : 'Objekt';
 $submitLabel = is_string($submitLabel ?? null) ? $submitLabel : 'Spara';
 $item = is_array($item ?? null) ? $item : null;
+$mediaItems = is_array($mediaItems ?? null) ? $mediaItems : [];
 $publicationStatus = $item !== null && is_scalar($item['publication_status_key'] ?? null)
     ? (string) $item['publication_status_key']
     : 'draft';
@@ -171,5 +172,115 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
             </form>
         </div>
 
+    <?php endif; ?>
+
+    <?php if ($item !== null): ?>
+        <?php
+        $itemPublicId = (string) ($item['public_id'] ?? '');
+        $mediaUploadAction = '/admin/items/' . rawurlencode($itemPublicId) . '/media';
+        $mediaSortAction = '/admin/items/' . rawurlencode($itemPublicId) . '/media/sort';
+        ?>
+        <section class="admin-media-section" aria-labelledby="item-media-heading">
+            <div class="admin-page-header">
+                <div>
+                    <h2 id="item-media-heading">Bilder</h2>
+                    <p>Ladda upp JPEG, PNG eller WebP. Filer lagras privat och visas via säkra routes.</p>
+                </div>
+            </div>
+
+            <form class="admin-media-upload" method="post" action="<?= $escape($mediaUploadAction) ?>" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                <label>
+                    <span>Välj bilder</span>
+                    <input name="images[]" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
+                </label>
+                <button class="admin-button" type="submit">Ladda upp</button>
+            </form>
+
+            <?php if ($mediaItems === []): ?>
+                <p>Inga bilder har laddats upp för objektet ännu.</p>
+            <?php else: ?>
+                <form method="post" action="<?= $escape($mediaSortAction) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+
+                    <div class="admin-media-grid">
+                        <?php foreach ($mediaItems as $mediaItem): ?>
+                            <?php if (!is_array($mediaItem)) {
+                                continue;
+                            } ?>
+                            <?php
+                            $mediaPublicId = (string) ($mediaItem['media_public_id'] ?? '');
+                            $thumbnailUrl = '/admin/media/' . rawurlencode($mediaPublicId) . '/thumbnail';
+                            $isPrimary = (int) ($mediaItem['is_primary'] ?? 0) === 1;
+                            ?>
+                            <article class="admin-media-card">
+                                <img src="<?= $escape($thumbnailUrl) ?>" alt="<?= $escape($mediaItem['original_filename'] ?? 'Objektbild') ?>" loading="lazy">
+
+                                <div>
+                                    <strong><?= $isPrimary ? 'Primär bild' : 'Bild' ?></strong>
+                                    <p><?= $escape($mediaItem['original_filename'] ?? $mediaPublicId) ?></p>
+                                </div>
+
+                                <label>
+                                    <span>Sortering</span>
+                                    <input
+                                        name="sort_order[<?= $escape($mediaPublicId) ?>]"
+                                        type="number"
+                                        min="0"
+                                        max="10000"
+                                        step="1"
+                                        value="<?= $escape($mediaItem['sort_order'] ?? 0) ?>"
+                                    >
+                                </label>
+
+                                <div class="admin-media-card-actions">
+                                    <?php if (!$isPrimary): ?>
+                                        <button
+                                            class="admin-button admin-button-secondary"
+                                            type="submit"
+                                            form="set-primary-<?= $escape($mediaPublicId) ?>"
+                                        >
+                                            Sätt primär
+                                        </button>
+                                    <?php endif; ?>
+                                    <button
+                                        class="admin-button admin-button-danger"
+                                        type="submit"
+                                        form="archive-media-<?= $escape($mediaPublicId) ?>"
+                                    >
+                                        Arkivera
+                                    </button>
+                                </div>
+                            </article>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="admin-actions">
+                        <button class="admin-button admin-button-secondary" type="submit">Spara bildordning</button>
+                    </div>
+                </form>
+
+                <?php foreach ($mediaItems as $mediaItem): ?>
+                    <?php if (!is_array($mediaItem)) {
+                        continue;
+                    } ?>
+                    <?php $mediaPublicId = (string) ($mediaItem['media_public_id'] ?? ''); ?>
+                    <form
+                        id="set-primary-<?= $escape($mediaPublicId) ?>"
+                        method="post"
+                        action="/admin/items/<?= rawurlencode($itemPublicId) ?>/media/<?= rawurlencode($mediaPublicId) ?>/primary"
+                    >
+                        <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                    </form>
+                    <form
+                        id="archive-media-<?= $escape($mediaPublicId) ?>"
+                        method="post"
+                        action="/admin/items/<?= rawurlencode($itemPublicId) ?>/media/<?= rawurlencode($mediaPublicId) ?>/archive"
+                    >
+                        <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
+                    </form>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </section>
     <?php endif; ?>
 </section>
