@@ -1,5 +1,7 @@
 <?php
 
+use App\Helpers\StatusLabels;
+
 $notification = is_array($notification ?? null) ? $notification : [];
 $attempts = is_array($attempts ?? null) ? $attempts : [];
 $isRetryable = (bool) ($isRetryable ?? false);
@@ -9,6 +11,31 @@ $error = is_string($error ?? null) ? $error : null;
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $valueOrDash = static fn (mixed $value): string => trim((string) $value) === '' ? '-' : (string) $value;
+$statusLabel = static fn (mixed $value): string => StatusLabels::notification($value);
+$eventLabel = static fn (mixed $value): string => StatusLabels::notificationEvent($value);
+$channelLabel = static fn (mixed $value): string => match ((string) $value) {
+    'email' => 'E-post',
+    default => $valueOrDash($value),
+};
+$recipientTypeLabel = static fn (mixed $value): string => match ((string) $value) {
+    'customer' => 'Kund',
+    'admin' => 'Administratör',
+    default => $valueOrDash($value),
+};
+$templateLabel = static fn (mixed $value): string => match ((string) $value) {
+    'booking_created_customer' => 'Bekräftelse till kund',
+    'booking_created_admin' => 'Ny förfrågan till admin',
+    'booking_approved_customer' => 'Godkännande till kund',
+    'booking_rejected_customer' => 'Avslag till kund',
+    'booking_cancelled_customer' => 'Avbruten bokning till kund',
+    default => $valueOrDash($value),
+};
+$transportLabel = static fn (mixed $value): string => match ((string) $value) {
+    'development' => 'Testtransport',
+    'smtp' => 'SMTP',
+    default => $valueOrDash($value),
+};
+$bookingPublicId = trim((string) ($notification['booking_public_id'] ?? ''));
 ?>
 <section class="admin-panel">
     <div class="admin-page-header">
@@ -30,15 +57,15 @@ $valueOrDash = static fn (mixed $value): string => trim((string) $value) === '' 
     <div class="admin-readonly-grid">
         <div>
             <strong>Händelse</strong>
-            <span><?= $escape($notification['event_key'] ?? '') ?></span>
+            <span><?= $escape($eventLabel($notification['event_key'] ?? '')) ?></span>
         </div>
         <div>
             <strong>Kanal</strong>
-            <span><?= $escape($notification['channel_key'] ?? '') ?></span>
+            <span><?= $escape($channelLabel($notification['channel_key'] ?? '')) ?></span>
         </div>
         <div>
             <strong>Mottagartyp</strong>
-            <span><?= $escape($notification['recipient_type'] ?? '') ?></span>
+            <span><?= $escape($recipientTypeLabel($notification['recipient_type'] ?? '')) ?></span>
         </div>
         <div>
             <strong>Mottagare</strong>
@@ -46,11 +73,11 @@ $valueOrDash = static fn (mixed $value): string => trim((string) $value) === '' 
         </div>
         <div>
             <strong>Mall</strong>
-            <span><?= $escape($notification['template_key'] ?? '') ?></span>
+            <span><?= $escape($templateLabel($notification['template_key'] ?? '')) ?></span>
         </div>
         <div>
             <strong>Status</strong>
-            <span><?= $escape($notification['status_key'] ?? '') ?></span>
+            <span><?= $escape($statusLabel($notification['status_key'] ?? '')) ?></span>
         </div>
         <div>
             <strong>Försök</strong>
@@ -74,7 +101,13 @@ $valueOrDash = static fn (mixed $value): string => trim((string) $value) === '' 
         </div>
         <div>
             <strong>Bokningsreferens</strong>
-            <span><?= $escape($valueOrDash($notification['booking_public_id'] ?? null)) ?></span>
+            <span>
+                <?php if ($bookingPublicId !== ''): ?>
+                    <a href="/admin/bookings/<?= rawurlencode($bookingPublicId) ?>"><?= $escape($bookingPublicId) ?></a>
+                <?php else: ?>
+                    -
+                <?php endif; ?>
+            </span>
         </div>
         <div>
             <strong>Senaste felkategori</strong>
@@ -117,8 +150,8 @@ $valueOrDash = static fn (mixed $value): string => trim((string) $value) === '' 
                 <?php foreach ($attempts as $attempt): ?>
                     <tr>
                         <td><?= $escape($attempt['attempt_number'] ?? '') ?></td>
-                        <td><?= $escape($attempt['status_key'] ?? '') ?></td>
-                        <td><?= $escape($attempt['transport_key'] ?? '') ?></td>
+                        <td><?= $escape($statusLabel($attempt['status_key'] ?? '')) ?></td>
+                        <td><?= $escape($transportLabel($attempt['transport_key'] ?? '')) ?></td>
                         <td><?= $escape($valueOrDash($attempt['error_code'] ?? null)) ?></td>
                         <td><?= $escape($attempt['attempted_at'] ?? '') ?></td>
                     </tr>

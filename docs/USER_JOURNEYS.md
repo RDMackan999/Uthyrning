@@ -82,7 +82,7 @@ Bokningar
     ↓
 Kontrollera tillgänglighet
     ↓
-Godkänn eller neka
+Godkänn eller avslå
     ↓
 Skapa avtal
 ```
@@ -90,11 +90,11 @@ Skapa avtal
 ### Resultat
 
 - Godkänd bokning reserverar objektet.
-- Nekad bokning frigör datum.
+- Avslagen bokning frigör datum.
 - Statushistorik sparas.
-- Kunden får senare e-postbesked vid godkänd, nekad eller avbokad bokning.
+- Kunden får senare e-postbesked vid godkänd, avslagen eller avbruten bokning.
 - Ett misslyckat e-postutskick ska inte ångra statusändringen, men ska kunna synas för administratören.
-- Administratören kan senare se varför datum är blockerade, till exempel förfrågan, godkänd bokning, aktiv bokning, manuell blockering eller service.
+- Administratören kan senare se varför datum är blockerade, till exempel förfrågan, godkänd bokning, pågående bokning, manuell blockering eller service.
 
 ---
 
@@ -132,7 +132,7 @@ Lämna ut objekt
 ```
 Dashboard
     ↓
-Aktiv bokning
+Pågående bokning
     ↓
 Inspektera objekt
     ↓

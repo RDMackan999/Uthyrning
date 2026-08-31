@@ -50,23 +50,45 @@ Följande dokument lästes inför granskningen:
 
 | Område | Status | P0 | P1 | P2 | P3 | Kommentar |
 |---|---:|---:|---:|---:|---:|---|
-| Publik objektkatalog | Delvis redo | 0 | 1 | 1 | 1 | PHP-listan finns, men landningssida och katalog är inte helt ihopkopplade. |
+| Publik objektkatalog | Redo för V1-verifiering | 0 | 0 | 0 | 1 | Landningssidans CTA, sök och kategorilänkar leder in i PHP-katalogen. |
 | Objektdetalj/media | Delvis redo | 0 | 0 | 1 | 1 | Bilder visas via kontrollerade routes. Dokument/manualer saknas. |
 | Bokning | Delvis redo | 0 | 0 | 1 | 0 | Bokningsförfrågan fungerar konceptuellt, men behöver full manuell V1-verifiering. |
 | Tillgänglighet | Delvis redo | 0 | 0 | 1 | 1 | Kalender och manuella block finns. Serviceblockering saknas eftersom service inte är byggt. |
 | Admin objekt | Delvis redo | 0 | 0 | 2 | 1 | Objekt, pris, publicering och media finns, men tekniska ID:n läcker i UI. |
 | Admin bokningar | Delvis redo | 0 | 0 | 1 | 0 | Statusflöde och fulfillment finns. Avtalskoppling saknas. |
 | Kunder | Delvis redo | 0 | 0 | 1 | 0 | Kundregister och historik finns. GDPR/anonymisering är inte implementerad. |
-| Genomförande | Delvis redo | 0 | 1 | 1 | 0 | Utlämning/återlämning finns, men service och dokumentdelar saknas. |
+| Genomförande | Redo för V1-verifiering | 0 | 0 | 1 | 0 | Utlämning/återlämning finns. Full service- och dokumenthantering är post-V1. |
 | Notifieringar | Delvis redo | 0 | 0 | 1 | 1 | E-postflöde och retry finns. Produktionstransport måste konfigureras och verifieras. |
 | Behörighet | Delvis redo | 0 | 0 | 1 | 0 | Org-scope finns och verkar konsekvent. Behöver E2E-verifieras i separat testmiljö. |
-| Säkerhet | Delvis redo | 0 | 1 | 1 | 0 | CSRF/PDO/loggningsprinciper finns. Testisolering och prod-check behöver stärkas. |
-| Navigation | Ej redo | 0 | 1 | 2 | 0 | Publik och adminnavigation är inte helt sammanhållen för V1. |
-| Fel-UX | Delvis redo | 0 | 0 | 2 | 0 | Generiska fel finns, men 403/404 saknar färdiga användarvänliga vyer. |
+| Säkerhet | Delvis redo | 0 | 0 | 1 | 0 | CSRF/PDO/loggningsprinciper och testisolering finns. Prod-check återstår. |
+| Navigation | Redo för V1-verifiering | 0 | 0 | 1 | 0 | Publik kundresa och huvudnavigation i admin är sammanhållen. Systemadminflöden behöver fortsatt verifieras. |
+| Fel-UX | Redo för V1-verifiering | 0 | 0 | 0 | 0 | Svenska 403/404-vyer finns utan interna detaljer. |
 | Responsivt | Oklart | 0 | 0 | 1 | 0 | CSS är responsiv, men ingen visuell mobil/Desktop-verifiering gjordes i reviewn. |
 | Tillgänglighet | Delvis redo | 0 | 0 | 2 | 0 | Semantiska element finns. Behöver tangentbordsskärmning och kalendertest med skärmläsare. |
-| Testisolering | Ej redo | 0 | 1 | 0 | 0 | Testsviten använder projektets konfigurerade databas och skriver fixtures. |
-| Produktionsredo | Ej redo | 0 | 2 | 2 | 1 | Deploymentdokument finns, men V1-release kräver separat hardening/checklista. |
+| Testisolering | Redo för V1-verifiering | 0 | 0 | 0 | 0 | Testsviten vägrar köra databastester utan `APP_ENV=test` och dedikerad testdatabas. |
+| Produktionsredo | Ej redo | 0 | 1 | 2 | 1 | Deploymentdokument finns, men V1-release kräver separat hardening/checklista. |
+
+---
+
+# Sprint 11B uppdatering
+
+Sprint 11B stänger eller omklassificerar de högsta V1-riskerna utan att bygga nya större produktområden.
+
+Löst eller stabiliserat:
+
+- P1-01 Testisolering: `tests/run.php` stoppar innan första databasskrivning om miljön inte är uttryckligen test och databasnamnet inte är en dedikerad testdatabas.
+- P1-02 Publik kundresa: landningssidans CTA, sökformulär, kategorier och exempelobjekt leder till PHP-katalogen på `/items`; PHP-rooten skickar också vidare till katalogen.
+- P1-03 MVP-yta: full avtal/PDF/digital signering, avancerad dokumenthantering och serviceorder omklassificeras till post-V1 om ingen separat release-sprint specificerar dem. V1 behåller manuell uthyrningshantering med bokning, kund, notifiering, media, utlämning och återlämning.
+- P2-01 Dashboardtext: tekniska och gamla placeholdertexter är ersatta med V1-relevant svensk text.
+- P2-02 Tekniska ID:n: V1-kritiska adminvyer visar publika referenser där referens behövs och döljer interna tekniska id:n där de inte behövs för administratören.
+- P2-04 Fel-UX: svenska 403/404-vyer finns för publik och admin.
+- P2-07 Dokumentationsdrift: `README.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT_GUIDE.md`, `docs/BUSINESS_RULES.md`, `docs/UI_FLOW.md`, `docs/USER_JOURNEYS.md` och `docs/PROJECT_DECISIONS.md` är uppdaterade för nuvarande V1-yta.
+
+Kvar efter Sprint 11B:
+
+- P1: samlad release-hardening före skarp drift.
+- P2: publika juridiska standardsidor, manuell tillgänglighetsverifiering, systemadminnavigering i alla relevanta adminvyer och produktionskonfiguration.
+- P3: pagination, prestandagranskning av bildleverans och större kataloger.
 
 ---
 

@@ -37,11 +37,7 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
         <?php if ($rate !== null): ?>
             <div class="admin-readonly-grid">
                 <div>
-                    <span>Tekniskt pris-ID</span>
-                    <strong><?= $escape($rate['id'] ?? '') ?></strong>
-                </div>
-                <div>
-                    <span>Objektets Public ID</span>
+                    <span>Objektreferens</span>
                     <strong><?= $escape($publicId) ?></strong>
                 </div>
             </div>

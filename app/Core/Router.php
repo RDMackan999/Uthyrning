@@ -69,7 +69,13 @@ final class Router
             $request->setRouteParams($route['params']);
 
             return $this->runRoute($route['handler'], $route['middleware'], $request);
+        } catch (NotFoundException $exception) {
+            return $this->errorResponse($exception, $request, 'errors/404');
         } catch (HttpException $exception) {
+            if ($exception->statusCode() === 403) {
+                return $this->errorResponse($exception, $request, 'errors/403');
+            }
+
             return Response::text($exception->getMessage(), $exception->statusCode());
         }
     }
@@ -186,5 +192,14 @@ final class Router
         $path = '/' . trim($path, '/');
 
         return $path === '/' ? '/' : rtrim($path, '/');
+    }
+
+    private function errorResponse(HttpException $exception, Request $request, string $template): Response
+    {
+        $layout = str_starts_with($request->path(), '/admin') ? 'layouts/admin' : 'layouts/public';
+
+        return new ViewResponse($template, [
+            'pageTitle' => $exception->statusCode() === 403 ? 'Åtkomst nekad' : 'Sidan hittades inte',
+        ], $exception->statusCode(), null, $layout);
     }
 }

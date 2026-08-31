@@ -100,11 +100,11 @@ final class AdminDashboardController extends BaseController
         }
 
         if ($context->hasSystemRole(OrganizationAuthorizationService::SYSTEM_ADMIN)) {
-            return OrganizationAuthorizationService::SYSTEM_ADMIN;
+            return 'Systemadministratör';
         }
 
         if ($context->hasAnyOrganizationRole(OrganizationAuthorizationService::ORGANIZATION_ADMIN)) {
-            return OrganizationAuthorizationService::ORGANIZATION_ADMIN;
+            return 'Organisationsadministratör';
         }
 
         return 'unknown';

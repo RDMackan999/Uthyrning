@@ -6,6 +6,7 @@ use App\Core\Collection;
 use App\Core\BookingException;
 use App\Core\Config;
 use App\Core\Database;
+use App\Core\HttpException;
 use App\Core\MigrationRunner;
 use App\Core\MediaException;
 use App\Core\ModelException;
@@ -15,6 +16,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
 use App\Core\SeederRunner;
+use App\Core\TestEnvironmentGuard;
 use App\Core\View;
 use App\Controllers\AdminNotificationController;
 use App\Http\BookingRequestFormRequest;
@@ -96,6 +98,16 @@ if (is_file($autoloadPath)) {
 
 Config::load($basePath);
 date_default_timezone_set((string) Config::get('app.timezone', 'Europe/Stockholm'));
+
+try {
+    TestEnvironmentGuard::assertSafe(
+        getenv('APP_ENV') === false ? null : (string) getenv('APP_ENV'),
+        is_string(Config::get('database.database')) ? Config::get('database.database') : null
+    );
+} catch (RuntimeException $exception) {
+    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
+    exit(1);
+}
 
 if (ob_get_level() === 0) {
     ob_start();
@@ -773,6 +785,22 @@ $rentalFulfillmentService = new RentalFulfillmentService();
 $mediaAssetRepository = new MediaAssetRepository();
 $mediaVariantRepository = new MediaVariantRepository();
 $itemMediaRepository = new ItemMediaRepository();
+
+$runner->test('test environment guard refuses unsafe database targets', static function (): void {
+    assertTrue(
+        TestEnvironmentGuard::issues('development', 'uthyrning_test') !== [],
+        'Development environment should be refused.'
+    );
+    assertTrue(
+        TestEnvironmentGuard::issues('test', 'uthyrning_dev') !== [],
+        'Development database should be refused.'
+    );
+    assertTrue(
+        TestEnvironmentGuard::issues('test', 'uthyrning') !== [],
+        'Production-looking database should be refused.'
+    );
+    assertSame([], TestEnvironmentGuard::issues('test', 'uthyrning_test'), 'Explicit test database should pass.');
+});
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {
     $migrationRunner->run();
@@ -3195,6 +3223,23 @@ $runner->test('Router supports rental item admin public_id route parameters', st
     assertSame('itm_test_public_id', $response->content(), 'Router should expose public_id route parameter.');
 });
 
+$runner->test('Router renders safe Swedish 403 and 404 responses', static function (): void {
+    $router = new Router();
+    $router->get('/admin/forbidden-preview', static function (): Response {
+        throw new HttpException(403, 'Forbidden');
+    });
+
+    $forbidden = $router->dispatch(new Request('GET', '/admin/forbidden-preview'));
+    assertSame(403, $forbidden->statusCode(), 'Forbidden response should keep HTTP 403.');
+    assertTrue(str_contains($forbidden->content(), 'Du har inte behörighet'), 'Forbidden response should be readable.');
+    assertFalse(str_contains($forbidden->content(), 'Forbidden'), 'Forbidden response should not expose internal label.');
+
+    $missing = $router->dispatch(new Request('GET', '/saknad-sida'));
+    assertSame(404, $missing->statusCode(), 'Missing route should keep HTTP 404.');
+    assertTrue(str_contains($missing->content(), 'Sidan hittades inte'), 'Missing route should be readable.');
+    assertFalse(str_contains($missing->content(), 'Not Found'), 'Missing route should not expose internal label.');
+});
+
 $runner->test('rental item admin list view renders item display fields', static function (): void {
     $html = (new View())->render('admin/items/index', [
         'items' => [[
@@ -3625,8 +3670,11 @@ $runner->test('public rental item listing has empty state and unauthenticated ro
     $routes = require $basePath . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
     $routes($router);
 
+    $rootResponse = $router->dispatch(new Request('GET', '/'));
     $response = $router->dispatch(new Request('GET', '/items'));
 
+    assertSame(302, $rootResponse->statusCode(), 'Public root should redirect to catalogue.');
+    assertSame('/items', $rootResponse->headers()['Location'] ?? null, 'Public root should lead to catalogue.');
     assertSame(200, $response->statusCode(), 'Public /items route should not require authentication.');
 });
 

@@ -3,6 +3,7 @@
 $pageTitle = is_string($pageTitle ?? null) && $pageTitle !== '' ? $pageTitle : 'Admin';
 $csrfToken = is_string($csrfToken ?? null) ? $csrfToken : '';
 $content = is_string($content ?? null) ? $content : '';
+$showSystemAdminNavigation = (bool) ($showSystemAdminNavigation ?? false);
 
 $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 ?>
@@ -357,10 +358,13 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
             <nav class="admin-nav" aria-label="Adminnavigation">
                 <a href="/admin">Dashboard</a>
-                <a href="/admin/items">Objekt och priser</a>
+                <a href="/admin/items">Objekt</a>
                 <a href="/admin/bookings">Bokningar</a>
-                <a href="/admin/notifications">Notifieringar</a>
                 <a href="/admin/customers">Kunder</a>
+                <a href="/admin/notifications">Notifieringar</a>
+                <?php if ($showSystemAdminNavigation): ?>
+                    <a href="/admin/organization-admins">Organisationsadmin</a>
+                <?php endif; ?>
                 <span aria-disabled="true">Service</span>
                 <span aria-disabled="true">Inställningar</span>
             </nav>

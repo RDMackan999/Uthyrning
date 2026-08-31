@@ -8,15 +8,15 @@ use App\Core\BaseController;
 use App\Core\Response;
 
 /**
- * Minimal backend home controller.
+ * Routes the PHP home entry to the public catalogue.
  */
 final class HomeController extends BaseController
 {
     /**
-     * Show the backend initialized page.
+     * Send visitors to the first usable public rental flow.
      */
     public function index(): Response
     {
-        return $this->view('pages/backend-home');
+        return $this->redirect('/items');
     }
 }

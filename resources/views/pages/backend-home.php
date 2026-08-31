@@ -1,1 +1,1 @@
-Backend initialized
+Backenden är igång.

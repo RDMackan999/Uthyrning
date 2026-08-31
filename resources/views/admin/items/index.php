@@ -21,14 +21,14 @@ $yesNo = static fn (mixed $value): string => filter_var($value, FILTER_VALIDATE_
     <?php endif; ?>
 
     <?php if ($items === []): ?>
-        <p>Inga objekt finns upplagda ännu.</p>
+        <p>Inga objekt finns upplagda ännu. Skapa första objektet för att komma igång.</p>
     <?php else: ?>
         <div class="admin-table-wrap">
             <table class="admin-table">
                 <thead>
                     <tr>
                         <th>Namn</th>
-                        <th>Public ID</th>
+                        <th>Referens</th>
                         <th>Kategori</th>
                         <th>Organisation</th>
                         <th>Aktiv</th>

@@ -23,6 +23,8 @@ final class Config
             self::loadFile($basePath, 'config'),
             self::loadFile($basePath, 'database'),
         );
+
+        self::applyEnvironmentOverrides();
     }
 
     /**
@@ -72,5 +74,64 @@ final class Config
         $config = require $path;
 
         return is_array($config) ? $config : [];
+    }
+
+    /**
+     * Allow local runtime overrides without committing real config files.
+     */
+    private static function applyEnvironmentOverrides(): void
+    {
+        $overrides = [
+            'APP_ENV' => 'app.environment',
+            'APP_DEBUG' => 'app.debug',
+            'APP_TIMEZONE' => 'app.timezone',
+            'APP_BASE_URL' => 'app.base_url',
+            'DB_HOST' => 'database.host',
+            'DB_PORT' => 'database.port',
+            'DB_DATABASE' => 'database.database',
+            'DB_USERNAME' => 'database.username',
+            'DB_PASSWORD' => 'database.password',
+            'DB_CHARSET' => 'database.charset',
+        ];
+
+        foreach ($overrides as $environmentKey => $configKey) {
+            $value = getenv($environmentKey);
+
+            if ($value === false) {
+                continue;
+            }
+
+            self::set($configKey, self::normalizeEnvironmentValue($environmentKey, $value));
+        }
+    }
+
+    /**
+     * Set a config value with dot notation.
+     */
+    private static function set(string $key, mixed $value): void
+    {
+        $items = &self::$items;
+
+        foreach (explode('.', $key) as $segment) {
+            if (!isset($items[$segment]) || !is_array($items[$segment])) {
+                $items[$segment] = [];
+            }
+
+            $items = &$items[$segment];
+        }
+
+        $items = $value;
+    }
+
+    /**
+     * Keep environment values typed where the config already expects it.
+     */
+    private static function normalizeEnvironmentValue(string $key, string $value): mixed
+    {
+        return match ($key) {
+            'APP_DEBUG' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            'DB_PORT' => (int) $value,
+            default => $value,
+        };
     }
 }

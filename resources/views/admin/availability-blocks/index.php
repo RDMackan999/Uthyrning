@@ -33,7 +33,6 @@ $publicId = (string) ($item['public_id'] ?? '');
             <table class="admin-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
                         <th>Period</th>
                         <th>Typ</th>
                         <th>Intern notering</th>
@@ -44,7 +43,6 @@ $publicId = (string) ($item['public_id'] ?? '');
                     <?php foreach ($blocks as $block): ?>
                         <?php $blockId = (string) ($block['id'] ?? ''); ?>
                         <tr>
-                            <td><?= $escape($blockId) ?></td>
                             <td><?= $escape(($block['start_date'] ?? '') . ' - ' . ($block['end_date'] ?? '')) ?></td>
                             <td><?= $escape($reasonOptions[$block['reason_code'] ?? ''] ?? ($block['reason_code'] ?? '')) ?></td>
                             <td><?= $escape($block['internal_note'] ?? '') ?></td>

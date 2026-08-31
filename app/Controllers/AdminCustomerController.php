@@ -9,6 +9,7 @@ use App\Core\CsrfTokenManager;
 use App\Core\NotFoundException;
 use App\Core\Request;
 use App\Core\Response;
+use App\Helpers\StatusLabels;
 use App\Http\CustomerFormRequest;
 use App\Models\Customer;
 use App\Repositories\CompanyRepository;
@@ -272,11 +273,7 @@ final class AdminCustomerController extends BaseController
      */
     private function statusOptions(): array
     {
-        return [
-            'active' => 'Aktiv',
-            'inactive' => 'Inaktiv',
-            'blocked' => 'Spärrad',
-        ];
+        return StatusLabels::customerOptions();
     }
 
     private function statusFilter(mixed $value): ?string

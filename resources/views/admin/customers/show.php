@@ -1,5 +1,7 @@
 <?php
 
+use App\Helpers\StatusLabels;
+
 $customer = is_array($customer ?? null) ? $customer : [];
 $bookingHistory = is_array($bookingHistory ?? null) ? $bookingHistory : [];
 $statusOptions = is_array($statusOptions ?? null) ? $statusOptions : [];
@@ -9,7 +11,8 @@ $error = is_string($error ?? null) ? $error : null;
 $customerId = (string) ($customer['id'] ?? '');
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-$statusLabel = static fn (mixed $value): string => $statusOptions[(string) $value] ?? (string) $value;
+$statusLabel = static fn (mixed $value): string => $statusOptions[(string) $value] ?? StatusLabels::customer($value);
+$bookingStatusLabel = static fn (mixed $value): string => StatusLabels::booking($value);
 $typeLabel = static fn (mixed $value): string => match ((string) $value) {
     'company' => 'Företag',
     default => 'Privatperson',
@@ -45,10 +48,6 @@ $money = static function (mixed $amount, mixed $currency) use ($escape): string 
 
     <h2>Översikt</h2>
     <div class="admin-readonly-grid">
-        <div>
-            <strong>Tekniskt id</strong>
-            <span><?= $escape($customer['id'] ?? '') ?></span>
-        </div>
         <div>
             <strong>Organisation</strong>
             <span><?= $escape($customer['organization_name'] ?? '-') ?></span>
@@ -128,7 +127,7 @@ $money = static function (mixed $amount, mixed $currency) use ($escape): string 
                             </td>
                             <td><?= $escape($booking['rental_item_names'] ?? '-') ?></td>
                             <td><?= $escape($booking['start_date'] ?? '') ?> - <?= $escape($booking['end_date'] ?? '') ?></td>
-                            <td><?= $escape($booking['status_key'] ?? '') ?></td>
+                            <td><?= $escape($bookingStatusLabel($booking['status_key'] ?? '')) ?></td>
                             <td>
                                 <?= $escape($booking['customer_name'] ?? '-') ?><br>
                                 <?= $escape($booking['customer_email'] ?? '-') ?><br>
