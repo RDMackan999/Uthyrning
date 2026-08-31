@@ -170,6 +170,25 @@ config.example.php
 
 versionshanteras.
 
+## V1 production config gate
+
+Backend stoppar production-start om kritiska inställningar saknas.
+
+Minimikrav:
+
+- `APP_ENV=production`
+- `APP_DEBUG=false`
+- `APP_BASE_URL=https://...`
+- `SECURITY_FORCE_HTTPS=true`
+- `AUTH_SESSION_COOKIE_SECURE=true`
+- `AUTH_CSRF_COOKIE_SECURE=true`
+- produktionsdatabas med separat användare och lösenord
+- `MAIL_TRANSPORT=smtp`
+- SMTP-host, port, TLS/SMTPS och avsändaradress
+- skrivbara kataloger för `storage/logs`, `storage/sessions`, `storage/temp`, `storage/media/original` och `storage/media/variants`
+
+Om applikationen körs bakom lastbalanserare eller reverse proxy ska endast betrodda proxy-IP:n anges i `SECURITY_TRUSTED_PROXIES`. Klienten får aldrig själv styra om en request behandlas som HTTPS.
+
 ---
 
 # Hemligheter
@@ -228,6 +247,21 @@ Backend:
 - PHP syntaxkontroll
 - Databastester
 - Funktionstest
+- `composer validate --no-check-publish`
+
+## Smoke test efter deployment
+
+Verifiera manuellt:
+
+- `/health` returnerar endast `{"status":"ok"}`
+- publik objektlista öppnas
+- objektdetalj öppnas
+- bokningsförfrågan kan skickas i testat flöde
+- adminlogin fungerar
+- adminlistor för objekt, bokningar, kunder och notifieringar öppnas
+- bildleverans fungerar via kontrollerade media-routes
+- SMTP skickar eller fångar e-post enligt vald driftkonfiguration
+- loggar saknar hemligheter, stack traces i production och kritiska fel
 
 ---
 
@@ -238,7 +272,7 @@ Kontrollera att:
 - README är uppdaterad
 - ROADMAP är uppdaterad vid behov
 - PROJECT_DECISIONS är uppdaterad
-- SECURITY påverkas inte
+- SECURITY är uppdaterad vid behov
 
 ---
 
@@ -252,6 +286,8 @@ Innan produktionsdeployment ska backup tas på:
 
 Backup ska verifieras.
 
+Verifiering innebär minst att en återläsning testas i separat miljö och att både databas och `storage/media` finns med.
+
 ---
 
 # Rollback
@@ -263,8 +299,11 @@ Rollback ska omfatta:
 - kod
 - databas
 - konfiguration
+- uppladdade filer
 
 Rollbackplan ska finnas innan deployment.
+
+Databasrollback ska planeras innan migrationer körs. Om en migration inte säkert kan rullas tillbaka automatiskt ska en manuell återställningsplan och backup finnas innan releasefönstret öppnas.
 
 ---
 

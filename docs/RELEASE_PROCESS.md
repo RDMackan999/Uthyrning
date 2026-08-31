@@ -295,6 +295,14 @@ v1.1.0
 v2.0.0
 ```
 
+För V1 ska första produktionskandidaten hanteras som release candidate, exempelvis:
+
+```text
+v1.0.0-rc.1
+```
+
+En RC får endast gå vidare till skarp V1 när release-hardening, testisolering, backup/restore, HTTPS, SMTP och manuell V1-smoke test är verifierade.
+
 ---
 
 # Steg 15 – Deployment
@@ -323,6 +331,9 @@ Efter deployment ska följande verifieras:
 - Bokningar fungerar
 - Databasen fungerar
 - Inga kritiska loggfel finns
+- `/health` returnerar minimal status utan miljö- eller configdetaljer
+- säkerhetsheaders finns på HTML- och JSON-svar
+- storage/media-rättigheter fungerar
 
 ---
 

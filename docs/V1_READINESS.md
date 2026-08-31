@@ -66,7 +66,7 @@ Följande dokument lästes inför granskningen:
 | Responsivt | Oklart | 0 | 0 | 1 | 0 | CSS är responsiv, men ingen visuell mobil/Desktop-verifiering gjordes i reviewn. |
 | Tillgänglighet | Delvis redo | 0 | 0 | 2 | 0 | Semantiska element finns. Behöver tangentbordsskärmning och kalendertest med skärmläsare. |
 | Testisolering | Redo för V1-verifiering | 0 | 0 | 0 | 0 | Testsviten vägrar köra databastester utan `APP_ENV=test` och dedikerad testdatabas. |
-| Produktionsredo | Ej redo | 0 | 1 | 2 | 1 | Deploymentdokument finns, men V1-release kräver separat hardening/checklista. |
+| Produktionsredo | Delvis redo | 0 | 0 | 2 | 1 | Production config gate, säkerhetsheaders och minimal health check finns. Manuell deployment-, backup/restore-, SMTP- och tillgänglighetsverifiering återstår. |
 
 ---
 
@@ -88,6 +88,26 @@ Kvar efter Sprint 11B:
 
 - P1: samlad release-hardening före skarp drift.
 - P2: publika juridiska standardsidor, manuell tillgänglighetsverifiering, systemadminnavigering i alla relevanta adminvyer och produktionskonfiguration.
+- P3: pagination, prestandagranskning av bildleverans och större kataloger.
+
+---
+
+# Sprint 11C uppdatering
+
+Sprint 11C stänger P1-04 som kod- och dokumentationsrisk inför release.
+
+Löst eller stabiliserat:
+
+- Production startar inte med debugläge, osäker base URL, osäkra auth/CSRF-cookies, development/test/exempeldatabas, tomt databaslösenord, development-mailtransport eller oskrivbara storage/media-kataloger.
+- Standardiserade säkerhetsheaders läggs på HTTP-svar utan att skriva över specifika controllerheaders.
+- `/health` returnerar endast minimal status och kräver fortfarande inte databas.
+- Reverse proxy/HTTPS kan tolkas via explicit konfigurerade betrodda proxyadresser.
+- Första adminskapande i production kräver explicit bekräftelse via miljövariabel under godkänt releasefönster.
+- Deployment- och releaseprocessen beskriver V1-checklista, backup/restore, rollback, SMTP, storage/media och smoke test tydligare.
+
+Kvar efter Sprint 11C:
+
+- P2: publika juridiska standardsidor, manuell tillgänglighetsverifiering, systemadminnavigering i alla relevanta adminvyer och produktionskonfiguration i faktisk driftmiljö.
 - P3: pagination, prestandagranskning av bildleverans och större kataloger.
 
 ---

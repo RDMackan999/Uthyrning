@@ -15,6 +15,7 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 - Lokal PHP-körning: Sprint 2I lägger till `public/index.php` som PHP-entrypoint och `database/seed.php` för idempotent seedning.
 - Notifieringsgrund: Sprint 7B lägger till e-postbaserade bokningsnotifieringar via development/test-transport. Sprint 7D lägger till en generisk SMTP-transport för produktion, utan leverantörsspecifik integration.
 - Testisolering: PHP-testsviten vägrar köra databastester utan `APP_ENV=test` och en dedikerad testdatabas, exempelvis `uthyrning_test`.
+- Release-hardening: produktion vägrar starta med osäkra standardvärden, svar får grundläggande säkerhetsheaders och `/health` returnerar endast minimal status.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -81,6 +82,7 @@ npm run lint
 | `php database/seed.php` | Kör idempotenta seed-filer från `database/seeders/`. |
 | `php database/create-admin.php` | Skapar första lokala administratören interaktivt när seedad adminroll finns. |
 | `APP_ENV=test DB_DATABASE=uthyrning_test php tests/run.php` | Kör PHP-testsviten mot en dedikerad testdatabas. |
+| `composer validate --no-check-publish` | Validerar Composer-konfigurationen. |
 
 PHP-testerna får inte köras mot utvecklings- eller produktionsdatabas. `tests/run.php` stoppar innan första skrivning om `APP_ENV` inte är `test`, om `DB_DATABASE` saknas eller om databasnamnet ser ut som development/production. Skapa en separat lokal databas, till exempel `uthyrning_test`, och kör migrationer/seed/tester mot den.
 
@@ -148,6 +150,16 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 Riktiga config-filer, API och externa integrationer ska endast byggas i separata specificerade sprintar.
 
 I development och test skickas ingen riktig e-post. `notifications.email_transport` är `development` i exempelkonfigurationen. För produktion ska en lokal, icke-committad `config/config.php` sätta `notifications.email_transport` till `smtp` och ange SMTP-host, port, kryptering, avsändare och eventuella autentiseringsuppgifter.
+
+## Produktionskonfiguration
+
+I produktion ska `APP_ENV=production`, `APP_DEBUG=false`, `APP_BASE_URL` börja med `https://`, `SECURITY_FORCE_HTTPS=true`, `AUTH_SESSION_COOKIE_SECURE=true` och `AUTH_CSRF_COOKIE_SECURE=true`.
+
+Databasen ska använda riktiga driftvärden via lokal config eller miljövariabler. `uthyrning_dev`, `uthyrning_test`, tomt databaslösenord och exempelvärden ska inte användas i produktion.
+
+E-posttransport måste vara explicit konfigurerad för SMTP i produktion. Development-transport får inte användas som fallback.
+
+Produktionsstart kontrolleras av `App\Core\ProductionEnvironmentGuard`. Vid osäker config stoppar backend innan routing och loggar endast säkra issue-koder, aldrig hemligheter.
 
 Sprint 7D är provider-neutral. Den bygger inte BankID, Swish, Fortnox, SMS, push, Kivra, worker, scheduler eller automatisk retry.
 

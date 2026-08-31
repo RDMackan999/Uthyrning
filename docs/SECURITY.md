@@ -321,6 +321,34 @@ Produktion ska använda:
 
 HTTPS är obligatoriskt.
 
+Backend lägger grundläggande säkerhetsheaders på `Response` som standard:
+
+- `Content-Security-Policy` med `frame-ancestors 'none'`, `base-uri 'self'` och `form-action 'self'`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy` som stänger av geolocation, mikrofon och kamera
+
+Explicit satta response-headers får behållas när en controller behöver ett specifikt innehållstyp- eller cachebeteende.
+
+`/health` ska endast returnera minimal status och får inte exponera miljö, version, databastatus, SMTP-status eller hemligheter.
+
+## Produktionsvakt
+
+Produktion ska falla stängt om kritisk config saknas eller är osäker.
+
+Vid `APP_ENV=production` ska backend vägra starta om:
+
+- debug är aktivt
+- `APP_BASE_URL` inte använder HTTPS
+- HTTPS-krav inte är uttryckligen aktiverat
+- session- eller CSRF-cookies inte är `Secure`
+- databasconfig ser ut som development/test/exempel eller saknar lösenord
+- SMTP inte är explicit konfigurerat
+- logg-, sessions-, temp- eller media-kataloger inte är skrivbara
+
+Loggar från denna kontroll får endast innehålla säkra issue-koder, inte configvärden, DSN, lösenord eller andra hemligheter.
+
 ---
 
 # Loggning

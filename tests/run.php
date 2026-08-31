@@ -12,6 +12,7 @@ use App\Core\MediaException;
 use App\Core\ModelException;
 use App\Core\NotFoundException;
 use App\Core\NotificationException;
+use App\Core\ProductionEnvironmentGuard;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
@@ -765,6 +766,47 @@ function auditCount(string $eventName, string $subjectType): int
     return (int) $statement->fetchColumn();
 }
 
+/**
+ * Temporarily override environment-backed config for isolated infrastructure tests.
+ *
+ * @param array<string, string|null> $variables
+ * @param callable(): void $callback
+ */
+function withTemporaryEnvironment(array $variables, callable $callback): void
+{
+    global $basePath;
+
+    $previous = [];
+
+    foreach ($variables as $key => $value) {
+        $previous[$key] = getenv($key);
+
+        if ($value === null) {
+            putenv($key);
+            continue;
+        }
+
+        putenv($key . '=' . $value);
+    }
+
+    Config::load($basePath);
+
+    try {
+        $callback();
+    } finally {
+        foreach ($previous as $key => $value) {
+            if ($value === false) {
+                putenv($key);
+                continue;
+            }
+
+            putenv($key . '=' . $value);
+        }
+
+        Config::load($basePath);
+    }
+}
+
 $runner = new TestRunner();
 $migrationRunner = new MigrationRunner($basePath);
 $seederRunner = new SeederRunner($basePath);
@@ -800,6 +842,95 @@ $runner->test('test environment guard refuses unsafe database targets', static f
         'Production-looking database should be refused.'
     );
     assertSame([], TestEnvironmentGuard::issues('test', 'uthyrning_test'), 'Explicit test database should pass.');
+});
+
+$runner->test('production environment guard refuses unsafe production defaults', static function () use ($basePath): void {
+    withTemporaryEnvironment([
+        'APP_ENV' => 'production',
+        'APP_DEBUG' => 'true',
+        'APP_BASE_URL' => 'http://localhost',
+        'SECURITY_FORCE_HTTPS' => 'false',
+        'AUTH_SESSION_COOKIE_SECURE' => 'false',
+        'AUTH_CSRF_COOKIE_SECURE' => 'false',
+        'DB_DATABASE' => 'uthyrning_dev',
+        'DB_USERNAME' => 'root',
+        'DB_PASSWORD' => '',
+        'MAIL_TRANSPORT' => 'development',
+    ], static function () use ($basePath): void {
+        $issues = ProductionEnvironmentGuard::issues($basePath);
+
+        assertTrue(in_array('app_debug_must_be_false', $issues, true), 'Production must refuse debug mode.');
+        assertTrue(in_array('app_base_url_must_be_https', $issues, true), 'Production must require HTTPS base URL.');
+        assertTrue(
+            in_array('database_config_must_be_production_safe', $issues, true),
+            'Production must refuse unsafe database defaults.'
+        );
+        assertTrue(
+            in_array('smtp_transport_must_be_configured', $issues, true),
+            'Production must refuse development mail transport.'
+        );
+    });
+});
+
+$runner->test('production environment guard accepts explicit hardened production config', static function () use ($basePath): void {
+    withTemporaryEnvironment([
+        'APP_ENV' => 'production',
+        'APP_DEBUG' => 'false',
+        'APP_BASE_URL' => 'https://uthyrning.se',
+        'SECURITY_FORCE_HTTPS' => 'true',
+        'AUTH_SESSION_COOKIE_SECURE' => 'true',
+        'AUTH_CSRF_COOKIE_SECURE' => 'true',
+        'DB_DATABASE' => 'uthyrning_main',
+        'DB_USERNAME' => 'uthyrning_app',
+        'DB_PASSWORD' => 'local-test-placeholder',
+        'MAIL_TRANSPORT' => 'smtp',
+        'SMTP_HOST' => 'mail.uthyrning.se',
+        'SMTP_ENCRYPTION' => 'tls',
+        'SMTP_FROM_ADDRESS' => 'no-reply@uthyrning.se',
+    ], static function () use ($basePath): void {
+        assertSame([], ProductionEnvironmentGuard::issues($basePath), 'Hardened production config should pass.');
+    });
+});
+
+$runner->test('responses include default security headers', static function (): void {
+    $response = Response::json(['status' => 'ok']);
+
+    assertSame('nosniff', $response->headers()['X-Content-Type-Options'] ?? null, 'Response should prevent MIME sniffing.');
+    assertSame('DENY', $response->headers()['X-Frame-Options'] ?? null, 'Response should deny framing by default.');
+    assertSame(
+        'strict-origin-when-cross-origin',
+        $response->headers()['Referrer-Policy'] ?? null,
+        'Response should set a conservative referrer policy.'
+    );
+});
+
+$runner->test('request HTTPS detection only trusts configured proxies', static function (): void {
+    withTemporaryEnvironment([
+        'SECURITY_TRUSTED_PROXIES' => '10.0.0.1',
+    ], static function (): void {
+        $trustedProxyRequest = new Request('GET', '/', [], [], [], [
+            'REMOTE_ADDR' => '10.0.0.1',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ]);
+        $untrustedProxyRequest = new Request('GET', '/', [], [], [], [
+            'REMOTE_ADDR' => '10.0.0.2',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ]);
+
+        assertTrue($trustedProxyRequest->isSecure(), 'Trusted HTTPS proxy should mark request as secure.');
+        assertFalse($untrustedProxyRequest->isSecure(), 'Untrusted proxy headers should be ignored.');
+    });
+});
+
+$runner->test('health route returns minimal readiness payload without environment details', static function (): void {
+    $router = new Router();
+    $registerRoutes = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+    $registerRoutes($router);
+
+    $response = $router->dispatch(new Request('GET', '/health'));
+
+    assertSame(200, $response->statusCode(), 'Health route should return OK.');
+    assertSame('{"status":"ok"}', $response->content(), 'Health route should only expose minimal status.');
 });
 
 $runner->test('migrations create category tables', static function () use ($migrationRunner): void {

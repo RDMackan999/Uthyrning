@@ -28,12 +28,15 @@ final class CsrfTokenManager
     public static function fromConfig(): self
     {
         $basePath = dirname(__DIR__, 2);
+        $configuredSecure = Config::get('auth.csrf_cookie_secure');
 
         return new self(
             $basePath . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'sessions' . DIRECTORY_SEPARATOR . 'csrf',
             (string) Config::get('auth.csrf_cookie_name', 'uthyrning_csrf'),
             (int) Config::get('auth.csrf_token_lifetime', 1800),
-            (string) Config::get('app.environment', 'production') === 'production',
+            is_bool($configuredSecure)
+                ? $configuredSecure
+                : (string) Config::get('app.environment', 'production') === 'production',
         );
     }
 

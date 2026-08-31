@@ -17,6 +17,7 @@ class Response
         private int $statusCode = 200,
         private array $headers = [],
     ) {
+        $this->headers = SecurityHeaders::merge($headers);
     }
 
     /**

@@ -34,6 +34,15 @@ date_default_timezone_set((string) Config::get('app.timezone', 'Europe/Stockholm
 
 $logger = new Logger($basePath . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs');
 
+if (
+    strtolower((string) Config::get('app.environment', 'production')) === 'production'
+    && getenv('UTHYRNING_CONFIRM_PRODUCTION_ADMIN_CREATE') !== '1'
+) {
+    fwrite(STDERR, 'Production admin creation requires explicit confirmation.' . PHP_EOL);
+    fwrite(STDERR, 'Set UTHYRNING_CONFIRM_PRODUCTION_ADMIN_CREATE=1 only during an approved release window.' . PHP_EOL);
+    exit(1);
+}
+
 echo 'Create first administrator' . PHP_EOL;
 echo 'No password is accepted through command-line arguments.' . PHP_EOL;
 

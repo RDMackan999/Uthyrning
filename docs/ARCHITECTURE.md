@@ -99,9 +99,11 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 
 - `Bootstrap`: laddar config, sätter timezone, registrerar felhantering, laddar routes och dispatchar request.
 - `Config`: läser `config/config.php` och `config/database.php` om de finns, annars respektive `.example.php`, kan ta lokala miljöoverridevärden och exponerar värden via dot notation.
+- `ProductionEnvironmentGuard`: stoppar produktion innan routing om debug, HTTPS, säkra cookies, databas, SMTP eller skrivbara storage-kataloger saknar explicit säker konfiguration.
 - `Router`: stödjer exakta `GET`- och `POST`-routes via `add()`, `get()`, `post()` och `dispatch()`.
-- `Request`: läser metod, URI, querystring och POST-data.
-- `Response`: skapar text-, HTML- och JSON-responser med statuskod och headers.
+- `Request`: läser metod, URI, querystring, POST-data, route-parametrar och HTTPS-status via direkt serverdata eller explicit betrodd proxy.
+- `Response`: skapar text-, HTML- och JSON-responser med statuskod, headers och säkra standardheaders.
+- `SecurityHeaders`: lägger konservativa standardheaders på responses utan att skriva över uttryckliga headers.
 - `JsonResponse`: specialiserad JSON-response med korrekt `Content-Type`.
 - `ViewResponse`: renderar PHP-views via `View` och returnerar HTML-response.
 - `RedirectResponse`: skapar redirect-responser med `Location`-header och tom body.
@@ -202,6 +204,8 @@ GET  /health                            JSON health check
 ```
 
 Adminroutes ska skyddas med autentisering, rollkontroll och resurskontroll. `/health` ska inte kräva fungerande databas.
+
+Health check ska bara exponera minimal driftstatus och får inte läcka miljönamn, versionsdetaljer, databaskonfiguration eller integrationsstatus.
 
 ## Nuvarande databasrelaterade struktur
 
@@ -321,7 +325,8 @@ Nuvarande ordning:
 4. Riktiga config-filer får inte committas.
 5. PDO-anslutning sker först när `Database::pdo()` eller `Database::connection()->pdo()` används.
 6. Migrationer körs manuellt via `php database/migrate.php` och kräver lokal databasanslutning.
-7. Sessionsinställningar och databasberoende affärslogik implementeras i senare sprintar.
+7. Produktion måste använda explicit säker config för HTTPS, cookies, databas, SMTP och storage-rättigheter innan backend startar.
+8. Sessionsinställningar läses från config och miljövariabler; känsliga värden ska ligga utanför Git.
 
 ## API-struktur senare
 
