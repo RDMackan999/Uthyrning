@@ -161,6 +161,26 @@ final class Request
     }
 
     /**
+     * Determine whether the request arrived over HTTPS or a trusted HTTPS proxy.
+     */
+    public function isSecure(): bool
+    {
+        $https = strtolower((string) ($this->server['HTTPS'] ?? ''));
+
+        if ($https === 'on' || $https === '1') {
+            return true;
+        }
+
+        if (!$this->isTrustedProxy()) {
+            return false;
+        }
+
+        $forwardedProto = strtolower((string) ($this->server['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+        return trim(explode(',', $forwardedProto)[0] ?? '') === 'https';
+    }
+
+    /**
      * Attach the authenticated user id after server-side session validation.
      */
     public function setAuthenticatedUserId(int $userId): void
@@ -231,5 +251,13 @@ final class Request
         }
 
         return array_merge($parsedQuery, $this->query);
+    }
+
+    private function isTrustedProxy(): bool
+    {
+        $remoteAddress = $this->ipAddress();
+        $trustedProxies = Config::get('security.trusted_proxies', []);
+
+        return is_array($trustedProxies) && in_array($remoteAddress, $trustedProxies, true);
     }
 }

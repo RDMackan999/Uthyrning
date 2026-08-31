@@ -16,8 +16,22 @@ return [
     'auth' => [
         'session_cookie_name' => 'uthyrning_session',
         'session_cookie_lifetime' => 28800,
+        'session_cookie_secure' => false,
         'csrf_cookie_name' => 'uthyrning_csrf',
         'csrf_token_lifetime' => 1800,
+        'csrf_cookie_secure' => false,
+    ],
+    'security' => [
+        'force_https' => false,
+        'trusted_proxies' => [],
+        'headers' => [
+            'enabled' => true,
+            'content_security_policy' => "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+            'x_frame_options' => 'DENY',
+            'x_content_type_options' => 'nosniff',
+            'referrer_policy' => 'strict-origin-when-cross-origin',
+            'permissions_policy' => 'geolocation=(), microphone=(), camera=()',
+        ],
     ],
     'notifications' => [
         'email_transport' => 'development',

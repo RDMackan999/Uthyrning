@@ -121,6 +121,18 @@ APP_ENV=test
 DB_DATABASE=uthyrning_test
 ```
 
+Production-läge kräver explicit härdad config. Använd inte exempelvärden i produktion. Minst följande ska sättas i lokal config eller driftmiljö:
+
+```bash
+APP_ENV=production
+APP_DEBUG=false
+APP_BASE_URL=https://uthyrning.se
+SECURITY_FORCE_HTTPS=true
+AUTH_SESSION_COOKIE_SECURE=true
+AUTH_CSRF_COOKIE_SECURE=true
+MAIL_TRANSPORT=smtp
+```
+
 Hemligheter, tokens, lösenord och riktiga integrationnycklar får aldrig läggas i repo, loggar eller PR-beskrivningar.
 
 ---
@@ -178,6 +190,7 @@ npm run build
 Alltid före commit:
 
 ```bash
+composer validate --no-check-publish
 git diff --check
 git status
 ```

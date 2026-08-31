@@ -17,7 +17,6 @@ use App\Controllers\PublicBookingController;
 use App\Controllers\PublicRentalItemController;
 use App\Controllers\RentalItemMediaController;
 use App\Controllers\RentalItemController;
-use App\Core\Config;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Router;
@@ -302,7 +301,5 @@ return static function (Router $router): void {
 
     $router->get('/health', static fn (): Response => Response::json([
         'status' => 'ok',
-        'version' => (string) Config::get('app.version', '0.1.0'),
-        'environment' => (string) Config::get('app.environment', 'development'),
     ]));
 };

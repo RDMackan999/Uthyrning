@@ -1136,6 +1136,42 @@ Kommande release-hardening bör kontrollera produktionsconfig, HTTPS, e-posttran
 
 ---
 
+# Beslut 0025
+
+## Datum
+
+2026-08-31
+
+## Status
+
+Accepted
+
+## Titel
+
+V1 release-hardening ska falla stängt i produktion
+
+## Beslut
+
+Production runtime ska vägra starta om kritiska driftinställningar saknas eller använder osäkra exempelvärden.
+
+Minimikrav för produktion är avstängt debugläge, HTTPS-baserad `APP_BASE_URL`, explicit HTTPS-krav, säkra session- och CSRF-cookies, produktionssäker databasconfig, explicit SMTP-transport och skrivbara privata storage-kataloger för loggar, sessionsdata, temporära filer och media.
+
+HTTP-svar ska få grundläggande säkerhetsheaders som standard. `/health` ska bara exponera minimal status och inte miljö, version, databasstatus eller integrationsdetaljer.
+
+Första adminskapande i production kräver explicit bekräftelse via miljövariabel under ett godkänt releasefönster.
+
+## Motivering
+
+V1 har tillräckligt mycket faktisk affärsfunktionalitet för att osäker driftconfig är en release-risk. Det är säkrare att stoppa start än att råka köra med development-mailtransport, osäkra cookies, debugläge eller fel databas.
+
+## Konsekvens
+
+Deployment måste förbereda riktiga lokala configvärden eller miljövariabler innan produktion startas.
+
+Backup/restore, SMTP, HTTPS, storage-rättigheter, loggar och V1-smoke test måste verifieras manuellt i faktisk driftmiljö innan skarp V1.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

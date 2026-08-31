@@ -21,10 +21,14 @@ final class CookieManager
      */
     public static function fromConfig(): self
     {
+        $configuredSecure = Config::get('auth.session_cookie_secure');
+
         return new self(
             (string) Config::get('auth.session_cookie_name', 'uthyrning_session'),
             (int) Config::get('auth.session_cookie_lifetime', 28800),
-            (string) Config::get('app.environment', 'production') === 'production',
+            is_bool($configuredSecure)
+                ? $configuredSecure
+                : (string) Config::get('app.environment', 'production') === 'production',
         );
     }
 

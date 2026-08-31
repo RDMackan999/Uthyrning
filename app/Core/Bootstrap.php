@@ -38,6 +38,8 @@ final class Bootstrap
         );
         $errorHandler->register();
 
+        ProductionEnvironmentGuard::assertRuntimeReady($this->basePath, $logger);
+
         $router = new Router();
         $this->loadRoutes($router);
 
