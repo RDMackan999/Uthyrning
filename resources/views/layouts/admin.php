@@ -118,6 +118,13 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             opacity: 0.55;
         }
 
+        .admin-button:focus-visible,
+        .admin-link-button:focus-visible,
+        .admin-nav a:focus-visible {
+            outline: 3px solid #7296c7;
+            outline-offset: 3px;
+        }
+
         .admin-inline-actions {
             align-items: center;
             display: flex;
@@ -244,6 +251,18 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             grid-template-columns: minmax(220px, 1fr) auto;
         }
 
+        .admin-media-hint,
+        .admin-media-empty,
+        .admin-media-meta {
+            color: #526072;
+            font-size: 0.92rem;
+            margin: 0;
+        }
+
+        .admin-media-hint {
+            grid-column: 1 / -1;
+        }
+
         .admin-media-grid {
             display: grid;
             gap: 1rem;
@@ -258,6 +277,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding: 0.75rem;
         }
 
+        .admin-media-card.is-primary {
+            border-color: #5b7fae;
+            box-shadow: 0 0 0 1px #5b7fae;
+        }
+
         .admin-media-card img {
             aspect-ratio: 4 / 3;
             background: #eef2f7;
@@ -265,6 +289,22 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             display: block;
             object-fit: cover;
             width: 100%;
+        }
+
+        .admin-media-card p {
+            margin: 0.25rem 0 0;
+            overflow-wrap: anywhere;
+        }
+
+        .admin-media-badge {
+            background: #eef6f1;
+            border: 1px solid #c9e6d3;
+            border-radius: 999px;
+            color: #1f6b3d;
+            display: inline-block;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 0.2rem 0.55rem;
         }
 
         .admin-media-card-actions {

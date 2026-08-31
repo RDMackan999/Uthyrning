@@ -186,6 +186,23 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             width: 100%;
         }
 
+        .public-item-card-placeholder,
+        .public-detail-image-placeholder {
+            align-items: center;
+            aspect-ratio: 4 / 3;
+            background: #eef2f7;
+            border: 1px dashed #b9c6d8;
+            border-radius: 6px;
+            color: #526072;
+            display: flex;
+            font-weight: 700;
+            justify-content: center;
+            margin: 0 0 1rem;
+            min-height: 12rem;
+            text-align: center;
+            width: 100%;
+        }
+
         .public-item-card h2 a,
         .public-back-link a {
             color: #172033;
@@ -227,14 +244,54 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
         }
 
+        .public-detail-main-image {
+            margin: 0 0 1rem;
+        }
+
+        .public-detail-main-image img {
+            aspect-ratio: 4 / 3;
+            background: #eef2f7;
+            border-radius: 6px;
+            display: block;
+            object-fit: cover;
+            width: 100%;
+        }
+
         .public-detail-gallery {
             display: grid;
             gap: 0.75rem;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             margin: 0 0 1.5rem;
         }
 
-        .public-detail-gallery img {
+        .public-detail-gallery-link {
+            border: 1px solid #dce3ee;
+            border-radius: 6px;
+            color: #172033;
+            display: grid;
+            gap: 0.4rem;
+            padding: 0.4rem;
+            text-decoration: none;
+        }
+
+        .public-detail-gallery-link:focus-visible,
+        .public-primary-link:focus-visible,
+        .public-detail-link:focus-visible,
+        .public-filter-actions button:focus-visible,
+        .public-filter-actions a:focus-visible,
+        .public-item-card h2 a:focus-visible,
+        .public-back-link a:focus-visible {
+            outline: 3px solid #7296c7;
+            outline-offset: 3px;
+        }
+
+        .public-detail-gallery-link span {
+            color: #526072;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .public-detail-gallery-link img {
             aspect-ratio: 4 / 3;
             background: #eef2f7;
             border-radius: 6px;

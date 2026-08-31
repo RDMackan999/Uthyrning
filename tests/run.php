@@ -1073,6 +1073,23 @@ $runner->test('media image services validate, process, scope and deliver item im
             $rentalItemRepository,
             $itemRateRepository
         );
+        $noImageItem = createBookableRentalItem(
+            $organizationId,
+            $categoryId,
+            'media-no-image-item-' . $suffix,
+            'Media No Image Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $draftItem = $rentalItemRepository->create([
+            'organization_id' => $organizationId,
+            'primary_category_id' => $categoryId,
+            'slug' => 'media-draft-item-' . $suffix,
+            'name' => 'Media Draft Item ' . $suffix,
+            'publication_status_key' => 'draft',
+            'is_active' => true,
+            'is_rentable' => true,
+        ]);
         createBookableRentalItem(
             $otherOrganizationId,
             $categoryId,
@@ -1084,6 +1101,7 @@ $runner->test('media image services validate, process, scope and deliver item im
 
         $adminSession = createAuthenticatedTestUser(false, [$organizationId]);
         $otherAdminSession = createAuthenticatedTestUser(false, [$otherOrganizationId]);
+        $systemAdminSession = createAuthenticatedTestUser(true);
         $server = [
             'REMOTE_ADDR' => '127.0.0.1',
             'HTTP_USER_AGENT' => 'Uthyrning test runner',
@@ -1093,8 +1111,10 @@ $runner->test('media image services validate, process, scope and deliver item im
 
         $jpeg = createTestImage('image/jpeg', 90, 60);
         $png = createTestImage('image/png', 80, 80);
+        $draftImage = createTestImage('image/jpeg', 70, 50);
         $sourceImages[] = $jpeg;
         $sourceImages[] = $png;
+        $sourceImages[] = $draftImage;
         $invalidPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp'
             . DIRECTORY_SEPARATOR . 'not-an-image-' . $suffix . '.jpg';
         file_put_contents($invalidPath, 'not an image');
@@ -1161,9 +1181,31 @@ $runner->test('media image services validate, process, scope and deliver item im
             $secondPublicId
         )->toArray()['sort_order'] ?? -1), 'Sort order should update for active media.');
 
+        $router = new Router();
+        $routes = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
+        $routes($router);
+
+        $itemData = $item->toArray();
+        $noImageItemData = $noImageItem->toArray();
+        $draftItemData = $draftItem->toArray();
         $firstPublicId = (string) ($createdAssets[0]['public_id'] ?? '');
+        $preArchiveDetail = $router->dispatch(new Request(
+            'GET',
+            '/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/' . rawurlencode((string) ($itemData['slug'] ?? ''))
+        ));
+        assertSame(200, $preArchiveDetail->statusCode(), 'Public item detail should render before media archive.');
+        assertTrue(str_contains($preArchiveDetail->content(), '/media/' . rawurlencode($secondPublicId) . '/detail'), 'Public detail should use detail variant for primary image.');
+        assertTrue(str_contains($preArchiveDetail->content(), '/media/' . rawurlencode($firstPublicId) . '/thumbnail'), 'Public detail gallery should use thumbnail links for additional images.');
+        assertTrue(str_contains($preArchiveDetail->content(), 'public-detail-main-image'), 'Public detail should render a main image area.');
+        assertTrue(str_contains($preArchiveDetail->content(), 'public-detail-gallery-link'), 'Public detail should render keyboard-accessible gallery links.');
+        assertFalse(str_contains($preArchiveDetail->content(), 'storage_key'), 'Public detail should not expose storage metadata.');
+        assertFalse(str_contains($preArchiveDetail->content(), 'second.png'), 'Public detail should not expose original filenames.');
+
+        $firstPublicId = (string) ($createdAssets[0]['public_id'] ?? '');
+        $firstStorageKey = is_string($createdAssets[0]['storage_key'] ?? null) ? (string) $createdAssets[0]['storage_key'] : '';
         $service->archive($request, $item, $firstPublicId);
         assertSame(1, $itemMediaRepository->findForItem($organizationId, (int) ($item->toArray()['id'] ?? 0))->count(), 'Archived media should leave active admin list.');
+        assertTrue($firstStorageKey !== '' && (new LocalMediaStorage())->exists($firstStorageKey), 'Logical archive should not physically delete the original file.');
         assertThrows(
             static fn () => $itemMediaRepository->findActiveRelationByMediaPublicId(
                 $organizationId,
@@ -1186,13 +1228,13 @@ $runner->test('media image services validate, process, scope and deliver item im
         assertSame('media_variants', MediaVariant::tableName(), 'MediaVariant model table should match.');
         assertSame('item_media', ItemMedia::tableName(), 'ItemMedia model table should match.');
 
-        $router = new Router();
-        $routes = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'web.php';
-        $routes($router);
         $publicMedia = $router->dispatch(new Request('GET', '/media/' . rawurlencode($secondPublicId) . '/card'));
         assertSame(200, $publicMedia->statusCode(), 'Public media route should deliver active public item image.');
         assertSame('image/png', $publicMedia->headers()['Content-Type'] ?? null, 'Public media should keep image MIME type.');
         assertFalse(str_contains($publicMedia->content(), 'storage/'), 'Public media response should not expose storage paths.');
+
+        $archivedPublicMedia = $router->dispatch(new Request('GET', '/media/' . rawurlencode($firstPublicId) . '/card'));
+        assertSame(404, $archivedPublicMedia->statusCode(), 'Archived media should not be publicly deliverable.');
 
         $adminMedia = $router->dispatch(new Request(
             'GET',
@@ -1204,6 +1246,16 @@ $runner->test('media image services validate, process, scope and deliver item im
         ));
         assertSame(200, $adminMedia->statusCode(), 'Organization admin should deliver own media thumbnail.');
 
+        $systemAdminMedia = $router->dispatch(new Request(
+            'GET',
+            '/admin/media/' . rawurlencode($secondPublicId) . '/thumbnail',
+            [],
+            [],
+            ['uthyrning_session' => $systemAdminSession['token']],
+            $server
+        ));
+        assertSame(200, $systemAdminMedia->statusCode(), 'System admin should deliver admin media thumbnail.');
+
         $crossTenantMedia = $router->dispatch(new Request(
             'GET',
             '/admin/media/' . rawurlencode($secondPublicId) . '/thumbnail',
@@ -1214,16 +1266,86 @@ $runner->test('media image services validate, process, scope and deliver item im
         ));
         assertSame(404, $crossTenantMedia->statusCode(), 'Other organization admin should receive safe 404 for media.');
 
-        $itemData = $item->toArray();
+        $adminEdit = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            ['uthyrning_session' => $adminSession['token']],
+            $server
+        ));
+        assertSame(200, $adminEdit->statusCode(), 'Admin item edit should render media section.');
+        assertTrue(str_contains($adminEdit->content(), 'Ladda upp JPEG, PNG eller WebP, max 8 MB per bild.'), 'Admin edit should explain allowed formats and max size.');
+        assertTrue(str_contains($adminEdit->content(), 'type="file"'), 'Admin edit should include file upload input.');
+        assertTrue(str_contains($adminEdit->content(), 'multiple'), 'Admin edit should support selecting multiple images.');
+        assertTrue(str_contains($adminEdit->content(), '/admin/media/' . rawurlencode($secondPublicId) . '/thumbnail'), 'Admin edit should render secure thumbnail route.');
+        assertTrue(str_contains($adminEdit->content(), 'Huvudbild'), 'Admin edit should clearly mark primary image.');
+        assertTrue(str_contains($adminEdit->content(), 'Spara bildordning'), 'Admin edit should expose sort action.');
+        assertTrue(str_contains($adminEdit->content(), 'Arkivera'), 'Admin edit should expose archive action.');
+        assertTrue(str_contains($adminEdit->content(), 'image/png'), 'Admin edit may show safe file type metadata.');
+        assertTrue(str_contains($adminEdit->content(), '80 x 80 px'), 'Admin edit may show safe dimension metadata.');
+        assertFalse(str_contains($adminEdit->content(), 'storage_key'), 'Admin edit should not expose storage keys.');
+        assertFalse(str_contains($adminEdit->content(), 'variants/'), 'Admin edit should not expose internal variant paths.');
+
+        $emptyAdminEdit = $router->dispatch(new Request(
+            'GET',
+            '/admin/items/' . rawurlencode((string) ($noImageItemData['public_id'] ?? '')) . '/edit',
+            [],
+            [],
+            ['uthyrning_session' => $adminSession['token']],
+            $server
+        ));
+        assertSame(200, $emptyAdminEdit->statusCode(), 'Admin item edit without media should render.');
+        assertTrue(str_contains($emptyAdminEdit->content(), 'Inga bilder har lagts till ännu.'), 'Admin edit should show an empty media state.');
+
         $publicList = $router->dispatch(new Request('GET', '/items'));
         assertSame(200, $publicList->statusCode(), 'Public item list should still render.');
         assertTrue(str_contains($publicList->content(), '/media/' . rawurlencode($secondPublicId) . '/card'), 'Public listing should include cover image URL.');
+        assertTrue(str_contains($publicList->content(), 'public-item-card-placeholder'), 'Public listing should render placeholders for items without images.');
+        assertTrue(str_contains($publicList->content(), 'Bild saknas'), 'Public listing should label missing images neutrally.');
+        assertFalse(str_contains($publicList->content(), 'original_filename'), 'Public listing should not expose original filenames.');
+        assertFalse(str_contains($publicList->content(), 'storage_key'), 'Public listing should not expose storage keys.');
+
         $publicDetail = $router->dispatch(new Request(
             'GET',
             '/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/' . rawurlencode((string) ($itemData['slug'] ?? ''))
         ));
         assertSame(200, $publicDetail->statusCode(), 'Public item detail should still render.');
         assertTrue(str_contains($publicDetail->content(), '/media/' . rawurlencode($secondPublicId) . '/detail'), 'Public detail should include detail image URL.');
+        assertFalse(str_contains($publicDetail->content(), '/media/' . rawurlencode($firstPublicId) . '/detail'), 'Public detail should hide archived media.');
+        assertFalse(str_contains($publicDetail->content(), 'storage_key'), 'Public detail should not expose storage keys.');
+
+        $noImagePublicDetail = $router->dispatch(new Request(
+            'GET',
+            '/items/' . rawurlencode((string) ($noImageItemData['public_id'] ?? '')) . '/' . rawurlencode((string) ($noImageItemData['slug'] ?? ''))
+        ));
+        assertSame(200, $noImagePublicDetail->statusCode(), 'Public item detail without media should render.');
+        assertTrue(str_contains($noImagePublicDetail->content(), 'public-detail-image-placeholder'), 'Public detail should render placeholder when image is missing.');
+
+        $draftRequest = new Request(
+            'POST',
+            '/admin/items/' . rawurlencode((string) ($draftItemData['public_id'] ?? '')) . '/media',
+            [],
+            [],
+            [],
+            $server
+        );
+        $draftRequest->setAuthenticatedUserId($adminSession['user_id']);
+        $draftAssets = $service->uploadImages($draftRequest, $draftItem, uploadedImagesArray([
+            uploadedImageArray($draftImage, 'draft.jpg', 'image/jpeg'),
+        ]));
+        $draftPublicId = (string) ($draftAssets[0]['public_id'] ?? '');
+        $unpublishedMedia = $router->dispatch(new Request('GET', '/media/' . rawurlencode($draftPublicId) . '/card'));
+        assertSame(404, $unpublishedMedia->statusCode(), 'Media for unpublished items should not be publicly deliverable.');
+
+        $crossTenantUpload = $router->dispatch(requestWithValidCsrfSessionAndFiles(
+            'POST',
+            '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/media',
+            $otherAdminSession['token'],
+            [],
+            ['images' => uploadedImagesArray([uploadedImageArray($png, 'cross-tenant.png', 'image/png')])]
+        ));
+        assertTrue(in_array($crossTenantUpload->statusCode(), [403, 404], true), 'Cross-tenant upload should be denied safely.');
 
         $adminUploadRequest = requestWithValidCsrfSessionAndFiles(
             'POST',
