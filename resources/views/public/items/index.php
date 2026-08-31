@@ -106,9 +106,17 @@ $selectedCategory = $stringValue($filters['category'] ?? '');
                         <img
                             class="public-item-card-image"
                             src="<?= $escape($coverUrl) ?>"
-                            alt="<?= $escape($item['name'] ?? '') ?>"
+                            alt="<?= $escape((string) ($item['name'] ?? '') . ' - huvudbild') ?>"
                             loading="lazy"
                         >
+                    <?php else: ?>
+                        <div
+                            class="public-item-card-placeholder"
+                            role="img"
+                            aria-label="Bild saknas för <?= $escape($item['name'] ?? '') ?>"
+                        >
+                            <span>Bild saknas</span>
+                        </div>
                     <?php endif; ?>
 
                     <h2>

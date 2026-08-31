@@ -30,6 +30,7 @@ $slug = $stringValue($item['slug'] ?? '');
 $bookingUrl = $publicId !== '' && $slug !== ''
     ? '/items/' . rawurlencode($publicId) . '/' . rawurlencode($slug) . '/book'
     : '';
+$mainImage = is_array($images[0] ?? null) ? $images[0] : null;
 ?>
 <section>
     <p class="public-back-link"><a href="/items">Tillbaka till objekt</a></p>
@@ -42,21 +43,58 @@ $bookingUrl = $publicId !== '' && $slug !== ''
             <?php endif; ?>
         </div>
 
-        <?php if ($images !== []): ?>
-            <div class="public-detail-gallery" aria-label="Objektbilder">
-                <?php foreach ($images as $image): ?>
-                    <?php if (!is_array($image)) {
-                        continue;
-                    } ?>
-                    <?php $imageUrl = $stringValue($image['url'] ?? ''); ?>
-                    <?php if ($imageUrl !== ''): ?>
-                        <img
-                            src="<?= $escape($imageUrl) ?>"
-                            alt="<?= $escape($name) ?>"
-                            loading="lazy"
-                        >
-                    <?php endif; ?>
-                <?php endforeach; ?>
+        <?php if ($mainImage !== null && $stringValue($mainImage['url'] ?? '') !== ''): ?>
+            <?php $mainImageUrl = $stringValue($mainImage['url'] ?? ''); ?>
+            <figure class="public-detail-main-image">
+                <img
+                    id="huvudbild"
+                    src="<?= $escape($mainImageUrl) ?>"
+                    alt="<?= $escape($name . ' - huvudbild') ?>"
+                >
+            </figure>
+
+            <?php if (count($images) > 1): ?>
+                <nav class="public-detail-gallery" aria-label="Objektbilder">
+                    <?php foreach ($images as $index => $image): ?>
+                        <?php if (!is_array($image)) {
+                            continue;
+                        } ?>
+                        <?php
+                        $imageUrl = $stringValue($image['url'] ?? '');
+                        $imagePublicId = $stringValue($image['public_id'] ?? '');
+                        $thumbnailUrl = $imagePublicId !== ''
+                            ? '/media/' . rawurlencode($imagePublicId) . '/thumbnail'
+                            : $imageUrl;
+                        $imageNumber = $index + 1;
+                        ?>
+                        <?php if ($imageUrl !== ''): ?>
+                            <a
+                                class="public-detail-gallery-link"
+                                href="<?= $escape($imageUrl) ?>"
+                                aria-label="Öppna bild <?= $escape((string) $imageNumber) ?> för <?= $escape($name) ?>"
+                            >
+                                <img
+                                    src="<?= $escape($thumbnailUrl) ?>"
+                                    alt="<?= $escape($name . ' - bild ' . (string) $imageNumber) ?>"
+                                    loading="lazy"
+                                >
+                                <?php if ((bool) ($image['is_primary'] ?? false)): ?>
+                                    <span>Huvudbild</span>
+                                <?php else: ?>
+                                    <span>Bild <?= $escape((string) $imageNumber) ?></span>
+                                <?php endif; ?>
+                            </a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </nav>
+            <?php endif; ?>
+        <?php else: ?>
+            <div
+                class="public-detail-image-placeholder"
+                role="img"
+                aria-label="Bild saknas för <?= $escape($name) ?>"
+            >
+                <span>Bild saknas</span>
             </div>
         <?php endif; ?>
 

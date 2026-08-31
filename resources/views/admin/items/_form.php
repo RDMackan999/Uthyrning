@@ -20,6 +20,18 @@ $value = static fn (string $key): string => is_scalar($data[$key] ?? null) ? (st
 $isChecked = static fn (string $key): string => filter_var($data[$key] ?? false, FILTER_VALIDATE_BOOLEAN) ? ' checked' : '';
 $isSelected = static fn (mixed $actual, mixed $expected): string => (string) $actual === (string) $expected ? ' selected' : '';
 $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null) ? (string) $errors[$key] : null;
+$formatBytes = static function (mixed $bytes): string {
+    if (!is_numeric($bytes)) {
+        return '';
+    }
+
+    $size = (float) $bytes;
+    if ($size >= 1048576) {
+        return number_format($size / 1048576, 1, ',', ' ') . ' MB';
+    }
+
+    return number_format($size / 1024, 0, ',', ' ') . ' kB';
+};
 ?>
 <section class="admin-panel">
     <div class="admin-page-header">
@@ -184,7 +196,7 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
             <div class="admin-page-header">
                 <div>
                     <h2 id="item-media-heading">Bilder</h2>
-                    <p>Ladda upp JPEG, PNG eller WebP. Filer lagras privat och visas via säkra routes.</p>
+                    <p>Ladda upp JPEG, PNG eller WebP, max 8 MB per bild. Filer lagras privat och visas via säkra routes.</p>
                 </div>
             </div>
 
@@ -195,10 +207,11 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
                     <input name="images[]" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
                 </label>
                 <button class="admin-button" type="submit">Ladda upp</button>
+                <p class="admin-media-hint">Du kan välja flera bilder. Uppladdningen fungerar utan JavaScript.</p>
             </form>
 
             <?php if ($mediaItems === []): ?>
-                <p>Inga bilder har laddats upp för objektet ännu.</p>
+                <p class="admin-media-empty">Inga bilder har lagts till ännu.</p>
             <?php else: ?>
                 <form method="post" action="<?= $escape($mediaSortAction) ?>">
                     <input type="hidden" name="csrf_token" value="<?= $escape($csrfToken) ?>">
@@ -212,13 +225,30 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
                             $mediaPublicId = (string) ($mediaItem['media_public_id'] ?? '');
                             $thumbnailUrl = '/admin/media/' . rawurlencode($mediaPublicId) . '/thumbnail';
                             $isPrimary = (int) ($mediaItem['is_primary'] ?? 0) === 1;
+                            $mimeType = (string) ($mediaItem['mime_type'] ?? '');
+                            $fileSize = $formatBytes($mediaItem['file_size_bytes'] ?? null);
+                            $dimensions = is_numeric($mediaItem['width'] ?? null) && is_numeric($mediaItem['height'] ?? null)
+                                ? (string) ((int) $mediaItem['width']) . ' x ' . (string) ((int) $mediaItem['height']) . ' px'
+                                : '';
+                            $metadata = array_filter([$mimeType, $fileSize, $dimensions], static fn (string $value): bool => $value !== '');
                             ?>
-                            <article class="admin-media-card">
-                                <img src="<?= $escape($thumbnailUrl) ?>" alt="<?= $escape($mediaItem['original_filename'] ?? 'Objektbild') ?>" loading="lazy">
+                            <article class="admin-media-card<?= $isPrimary ? ' is-primary' : '' ?>">
+                                <img
+                                    src="<?= $escape($thumbnailUrl) ?>"
+                                    alt="<?= $escape($isPrimary ? 'Huvudbild för objektet' : 'Objektbild') ?>"
+                                    loading="lazy"
+                                >
 
                                 <div>
-                                    <strong><?= $isPrimary ? 'Primär bild' : 'Bild' ?></strong>
+                                    <?php if ($isPrimary): ?>
+                                        <span class="admin-media-badge" aria-label="Markerad som huvudbild">Huvudbild</span>
+                                    <?php else: ?>
+                                        <strong>Bild</strong>
+                                    <?php endif; ?>
                                     <p><?= $escape($mediaItem['original_filename'] ?? $mediaPublicId) ?></p>
+                                    <?php if ($metadata !== []): ?>
+                                        <p class="admin-media-meta"><?= $escape(implode(' · ', $metadata)) ?></p>
+                                    <?php endif; ?>
                                 </div>
 
                                 <label>
@@ -239,6 +269,7 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
                                             class="admin-button admin-button-secondary"
                                             type="submit"
                                             form="set-primary-<?= $escape($mediaPublicId) ?>"
+                                            aria-label="Sätt bilden som huvudbild"
                                         >
                                             Sätt primär
                                         </button>
@@ -247,6 +278,7 @@ $errorFor = static fn (string $key): ?string => is_string($errors[$key] ?? null)
                                         class="admin-button admin-button-danger"
                                         type="submit"
                                         form="archive-media-<?= $escape($mediaPublicId) ?>"
+                                        aria-label="Arkivera bilden"
                                     >
                                         Arkivera
                                     </button>
