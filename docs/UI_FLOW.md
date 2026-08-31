@@ -501,8 +501,8 @@ Kalenderpåverkan:
 
 - Förfrågan reserverar datum preliminärt.
 - Godkänd bokning reserverar datum.
-- Aktiv bokning reserverar datum.
-- Nekad, avbokad och slutförd bokning frigör datum för framtida bokningar.
+- Pågående bokning reserverar datum.
+- Avslagen, avbruten och slutförd bokning frigör datum för framtida bokningar.
 
 Administrativ kalender ska senare kunna visa skillnad mellan förfrågan, godkänd bokning, aktiv bokning, manuell blockering och service. Den ska aldrig bygga egna tillgänglighetsregler som avviker från backendens gemensamma tillgänglighetskontroll.
 
@@ -510,8 +510,8 @@ Notifieringspåverkan:
 
 - Ny bokningsförfrågan skickar bekräftelse till kund och notifiering till administratör/uthyrare.
 - Godkänd bokning skickar besked till kund.
-- Nekad bokningsförfrågan skickar besked till kund.
-- Avbokad eller annullerad bokning skickar besked till kund.
+- Avslagen bokningsförfrågan skickar besked till kund.
+- Avbruten eller annullerad bokning skickar besked till kund.
 - Misslyckade notifieringar ska kunna visas för administratör och skickas om senare.
 
 Adminvyn ska inte visa fullständig e-postbody som standard.

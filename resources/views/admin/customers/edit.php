@@ -1,5 +1,7 @@
 <?php
 
+use App\Helpers\StatusLabels;
+
 $customer = is_array($customer ?? null) ? $customer : [];
 $data = is_array($data ?? null) ? $data : [];
 $errors = is_array($errors ?? null) ? $errors : [];
@@ -11,6 +13,7 @@ $customerId = (string) ($customer['id'] ?? '');
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $fieldValue = static fn (string $key): string => (string) ($data[$key] ?? $customer[$key] ?? '');
 $isSelected = static fn (string $key, string $value): string => $fieldValue($key) === $value ? 'selected' : '';
+$statusLabel = static fn (mixed $value): string => StatusLabels::customer($value);
 ?>
 <section class="admin-panel">
     <div class="admin-page-header">
@@ -36,16 +39,12 @@ $isSelected = static fn (string $key, string $value): string => $fieldValue($key
     <h2>Identitet</h2>
     <div class="admin-readonly-grid">
         <div>
-            <strong>Tekniskt id</strong>
-            <span><?= $escape($customer['id'] ?? '') ?></span>
-        </div>
-        <div>
             <strong>Organisation</strong>
             <span><?= $escape($customer['organization_name'] ?? '-') ?></span>
         </div>
         <div>
             <strong>Status</strong>
-            <span><?= $escape($customer['status_key'] ?? '') ?></span>
+            <span><?= $escape($statusLabel($customer['status_key'] ?? '')) ?></span>
         </div>
     </div>
 

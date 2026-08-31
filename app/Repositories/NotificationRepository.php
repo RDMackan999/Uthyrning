@@ -461,8 +461,8 @@ final class NotificationRepository extends BaseRepository
         return [
             'booking_created' => 'Ny bokningsförfrågan',
             'booking_approved' => 'Bokning godkänd',
-            'booking_rejected' => 'Bokning nekad',
-            'booking_cancelled' => 'Bokning avbokad',
+            'booking_rejected' => 'Bokning avslagen',
+            'booking_cancelled' => 'Bokning avbruten',
         ];
     }
 

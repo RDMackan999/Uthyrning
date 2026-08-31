@@ -49,9 +49,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             gap: 0.75rem;
         }
 
+        .public-nav a,
         .public-nav span {
             color: #172033;
             font-weight: 700;
+            text-decoration: none;
         }
 
         .public-main {
@@ -275,6 +277,7 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
         }
 
         .public-detail-gallery-link:focus-visible,
+        .public-nav a:focus-visible,
         .public-primary-link:focus-visible,
         .public-detail-link:focus-visible,
         .public-filter-actions button:focus-visible,
@@ -666,10 +669,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 </head>
 <body>
     <header class="public-header">
-        <a class="public-brand" href="/items">Uthyrning</a>
+        <a class="public-brand" href="/">Uthyrning</a>
 
         <nav class="public-nav" aria-label="Publik navigation">
-            <span>Objekt</span>
+            <a href="/">Startsida</a>
+            <a href="/items">Objekt</a>
         </nav>
     </header>
 

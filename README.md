@@ -7,15 +7,14 @@ Det här GitHub-repot är projektets huvudkälla. Den nuvarande fungerande landn
 ## Nuvarande status
 
 - Fungerande landningssida: ja.
-- Backend: Sprint 1B-kärna finns för config, routing, request/response, logging och felhantering.
-- Databasgrund: Sprint 1C lägger till lazy PDO-anslutning via `App\Core\Database`.
-- Migrationsgrund: Sprint 1D lägger till en enkel migrationsmotor och intern `migrations`-tabell, men inga produkttabeller.
-- Modellgrund: Sprint 1E lägger till BaseModel, BaseRepository, Collection och ModelException utan SQL eller affärslogik.
-- Controller-/view-grund: Sprint 1F lägger till BaseController, View, RedirectResponse och HomeController utan affärslogik.
-- HTTP-grund: Sprint 1G lägger till JsonResponse, ViewResponse, HttpException och NotFoundException utan affärslogik.
+- Backend: PHP-kärna finns för config, routing, request/response, logging, felhantering, modeller, repositories och serverrenderade vyer.
+- Publikt flöde: PHP-katalogen på `/items` stödjer lista, objektdetalj, bokningsförfrågan och bekräftelse.
+- Adminflöde: PHP-admin stödjer objekt, priser, media, kalenderblockeringar, bokningar, kunder, notifieringar och utlämning/återlämning.
+- Databasgrund: lazy PDO-anslutning via `App\Core\Database`, migrationsmotor och idempotent seedning finns.
 - Lokal adminstart: Sprint 2H lägger till ett CLI-verktyg för att skapa första administratören i lokal databas.
 - Lokal PHP-körning: Sprint 2I lägger till `public/index.php` som PHP-entrypoint och `database/seed.php` för idempotent seedning.
 - Notifieringsgrund: Sprint 7B lägger till e-postbaserade bokningsnotifieringar via development/test-transport. Sprint 7D lägger till en generisk SMTP-transport för produktion, utan leverantörsspecifik integration.
+- Testisolering: PHP-testsviten vägrar köra databastester utan `APP_ENV=test` och en dedikerad testdatabas, exempelvis `uthyrning_test`.
 - BankID, Swish och Fortnox: endast förberedda i text och planering, inte integrerade.
 
 ## Var landningssidan ligger
@@ -81,9 +80,9 @@ npm run lint
 | `php database/migrate.php` | Kör PHP-migrationer från `database/migrations/`. |
 | `php database/seed.php` | Kör idempotenta seed-filer från `database/seeders/`. |
 | `php database/create-admin.php` | Skapar första lokala administratören interaktivt när seedad adminroll finns. |
-| `php tests/run.php` | Kör nuvarande PHP-testsvit mot lokal databas och använder transaktioner för temporär testdata. |
+| `APP_ENV=test DB_DATABASE=uthyrning_test php tests/run.php` | Kör PHP-testsviten mot en dedikerad testdatabas. |
 
-PHP-testerna förutsätter en lokal utvecklings- eller testdatabas enligt `config/database.php` eller `config/database.example.php`. Testsviten kan köra migrationer och seeders, men temporär repository-testdata skapas i transaktioner och rullas tillbaka.
+PHP-testerna får inte köras mot utvecklings- eller produktionsdatabas. `tests/run.php` stoppar innan första skrivning om `APP_ENV` inte är `test`, om `DB_DATABASE` saknas eller om databasnamnet ser ut som development/production. Skapa en separat lokal databas, till exempel `uthyrning_test`, och kör migrationer/seed/tester mot den.
 
 ## Sites kontra public_html
 
@@ -114,8 +113,8 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `app/Core/RedirectResponse.php`: redirect response med `Location`-header och tom body.
 - `app/Core/HttpException.php`: grundexception för förväntade HTTP-fel.
 - `app/Core/NotFoundException.php`: HTTP 404-exception för saknade routes eller resurser.
-- `app/Controllers/HomeController.php`: minimal backend-controller som renderar backendens testvy.
-- `resources/views/pages/backend-home.php`: enkel backend-testvy för `GET /`.
+- `app/Controllers/HomeController.php`: skickar PHP-rooten vidare till den publika katalogen.
+- `resources/views/errors/`: svenska 403/404-vyer utan interna route- eller behörighetsdetaljer.
 - `app/Core/BaseModel.php`: grundstruktur för framtida modeller med `fill()` och `toArray()`.
 - `app/Core/BaseRepository.php`: grundstruktur för framtida repositories med metoder som ännu kastar tydliga undantag.
 - `app/Core/Collection.php`: enkel itererbar collection med `count()` och `toArray()`.
@@ -128,8 +127,8 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `config/`: endast exempelkonfigurationer.
 - `config/config.example.php`: innehåller säkert development-läge för notifieringar och exempelvärden för generisk SMTP-konfiguration.
 - `config/database.example.php`: exempelvärden för lokal MySQL/MariaDB-anslutning.
-- `routes/web.php`: tekniska routes för `/` och `/health`.
-- `database/migrations/`: SQL-migrationer. Sprint 1D innehåller endast intern `migrations`-tabell.
+- `routes/web.php`: publika katalog-/bokningsroutes, auth/adminroutes samt `/health`.
+- `database/migrations/`: SQL-migrationer för den aktuella backendgrunden.
 - `database/migrate.php`: CLI-script för att köra migrationer.
 - `database/seed.php`: CLI-script för att köra seed-filer.
 - `database/create-admin.php`: interaktivt CLI-script för att skapa första administratören efter att identity seed-data finns.
@@ -146,7 +145,7 @@ Sprint 1A introducerade en teknisk PHP-grund utan affärsfunktioner. Sprint 1B i
 - `app/Services/NotificationTemplateService.php`: renderar filbaserade PHP-mailmallar.
 - `resources/views/emails/booking/`: enkla svenska mailmallar för Version 1.
 
-Riktiga config-filer, nya affärsmigrationer, login, API och externa integrationer ska endast byggas i separata specificerade sprintar.
+Riktiga config-filer, API och externa integrationer ska endast byggas i separata specificerade sprintar.
 
 I development och test skickas ingen riktig e-post. `notifications.email_transport` är `development` i exempelkonfigurationen. För produktion ska en lokal, icke-committad `config/config.php` sätta `notifications.email_transport` till `smtp` och ange SMTP-host, port, kryptering, avsändare och eventuella autentiseringsuppgifter.
 
@@ -170,10 +169,7 @@ Följande ska systemet kunna stödja senare, men de är inte implementerade änn
 - Fortnox
 - PWA
 - Flerspråkighet
-- Bokningar och kalender
 - Digitala avtal
-- Rollsystem
-- Audit trail
 - Underhåll och service
 - Marknadsplats för externa uthyrare
 

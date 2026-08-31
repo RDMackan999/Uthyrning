@@ -57,22 +57,14 @@ $formatBytes = static function (mixed $bytes): string {
         <?php if ($item !== null): ?>
             <div class="admin-readonly-grid">
                 <div>
-                    <span>Tekniskt ID</span>
-                    <strong><?= $escape($item['id'] ?? '') ?></strong>
-                </div>
-                <div>
-                    <span>Public ID</span>
+                    <span>Objektreferens</span>
                     <strong><?= $escape($item['public_id'] ?? '') ?></strong>
                 </div>
             </div>
         <?php else: ?>
             <div class="admin-readonly-grid">
                 <div>
-                    <span>Tekniskt ID</span>
-                    <strong>Skapas vid sparning</strong>
-                </div>
-                <div>
-                    <span>Public ID</span>
+                    <span>Objektreferens</span>
                     <strong>Skapas vid sparning</strong>
                 </div>
             </div>
@@ -245,7 +237,7 @@ $formatBytes = static function (mixed $bytes): string {
                                     <?php else: ?>
                                         <strong>Bild</strong>
                                     <?php endif; ?>
-                                    <p><?= $escape($mediaItem['original_filename'] ?? $mediaPublicId) ?></p>
+                                    <p><?= $escape($isPrimary ? 'Visas först publikt' : 'Aktiv objektbild') ?></p>
                                     <?php if ($metadata !== []): ?>
                                         <p class="admin-media-meta"><?= $escape(implode(' · ', $metadata)) ?></p>
                                     <?php endif; ?>

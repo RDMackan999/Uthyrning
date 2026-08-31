@@ -7,6 +7,7 @@ namespace App\Middleware;
 use App\Core\MiddlewareInterface;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\ViewResponse;
 use App\Services\AuditService;
 use App\Services\OrganizationAuthorizationService;
 
@@ -32,17 +33,24 @@ final class AuthorizationMiddleware implements MiddlewareInterface
         if ($userId === null) {
             $this->auditAuthorizationFailed(null, $request, 'missing_authenticated_user');
 
-            return Response::text('Forbidden', 403);
+            return $this->forbiddenResponse();
         }
 
         if (!$this->authorizationService->canPassRoute($request, $this->requiredRoles)) {
             $this->auditAuthorizationFailed($userId, $request, 'missing_required_role');
             $this->auditUnauthorizedAdminAccess($userId, $request);
 
-            return Response::text('Forbidden', 403);
+            return $this->forbiddenResponse();
         }
 
         return $next($request);
+    }
+
+    private function forbiddenResponse(): Response
+    {
+        return new ViewResponse('errors/403', [
+            'pageTitle' => 'Åtkomst nekad',
+        ], 403, null, 'layouts/admin');
     }
 
     /**

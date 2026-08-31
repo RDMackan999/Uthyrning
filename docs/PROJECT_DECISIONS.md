@@ -1098,6 +1098,44 @@ Dokument, PDF, video, skadebilder, servicebilder, OCR, AI-bildanalys, S3/CDN och
 
 ---
 
+# Beslut 0024
+
+## Datum
+
+2026-08-31
+
+## Status
+
+Accepted
+
+## Titel
+
+V1-stabilisering och testisolering före release
+
+## Beslut
+
+Automatiska PHP-databastester ska kräva en uttrycklig testmiljö och en dedikerad testdatabas. `tests/run.php` ska stoppa innan första databasskrivning om `APP_ENV` inte är `test`, om databasnamnet saknas eller om namnet ser ut som development, staging, live eller production.
+
+Rekommenderat lokalt testdatabasnamn är `uthyrning_test`. Utvecklingsdata i `uthyrning_dev` ska inte användas för automatiska testfixtures.
+
+Version 1 ska fokusera på sammanhängande publik kundresa, administrativ hantering av objekt, priser, media, bokningsförfrågningar, kunder, notifieringar samt manuell utlämning och återlämning.
+
+Full avtalshantering med PDF, digital signering, BankID, Swish, Fortnox, kundportal, avancerad dokumenthantering, serviceorder, skadebilder, extern storage, PWA offline och marknadsplatsfunktioner skjuts upp till separata sprintar efter V1 om de inte får en egen uttrycklig specifikation innan release.
+
+## Motivering
+
+Testisolering är nödvändig för att kunna verifiera V1 utan risk för utvecklings- eller produktionsdata.
+
+V1 ska vara användbar och sammanhängande, men inte låtsas vara färdig med integrationer eller sidoprocesser som ännu saknar krav, säkerhetsdesign och testbar implementation.
+
+## Konsekvens
+
+Dokumentation och UI ska beskriva faktiskt byggd V1-yta tydligare och undvika krav på integrations- eller dokumentfunktioner som inte ingår i aktuell release.
+
+Kommande release-hardening bör kontrollera produktionsconfig, HTTPS, e-posttransport, backup, filrättigheter, loggning och manuell tillgänglighetsverifiering.
+
+---
+
 # Framtida beslut
 
 Exempel på beslut som senare ska dokumenteras:

@@ -1,5 +1,7 @@
 <?php
 
+use App\Helpers\StatusLabels;
+
 $booking = is_array($booking ?? null) ? $booking : [];
 $items = is_array($items ?? null) ? $items : [];
 $fulfillment = is_array($fulfillment ?? null) ? $fulfillment : null;
@@ -12,17 +14,10 @@ $csrfToken = is_string($csrfToken ?? null) ? $csrfToken : '';
 $message = is_string($message ?? null) ? $message : null;
 $error = is_string($error ?? null) ? $error : null;
 $publicId = (string) ($booking['public_id'] ?? '');
+$customerId = is_numeric($booking['customer_id'] ?? null) ? (string) $booking['customer_id'] : '';
 
 $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-$statusLabels = [
-    'request' => 'Förfrågan',
-    'approved' => 'Godkänd',
-    'rejected' => 'Nekad',
-    'cancelled' => 'Avbokad',
-    'active' => 'Aktiv',
-    'completed' => 'Slutförd',
-];
-$statusLabel = static fn (mixed $value): string => $statusLabels[(string) $value] ?? (string) $value;
+$statusLabel = static fn (mixed $value): string => StatusLabels::booking($value);
 $conditionLabels = [
     'good' => 'Bra',
     'acceptable' => 'Acceptabelt',
@@ -153,6 +148,12 @@ $isLateReturn = $fulfillment !== null
             <strong>Företag</strong>
             <span><?= $escape($booking['company_name'] ?? '-') ?></span>
         </div>
+        <?php if ($customerId !== ''): ?>
+            <div>
+                <strong>Kundregister</strong>
+                <span><a href="/admin/customers/<?= rawurlencode($customerId) ?>">Visa kund</a></span>
+            </div>
+        <?php endif; ?>
     </div>
 
     <h2>Kommentarer</h2>

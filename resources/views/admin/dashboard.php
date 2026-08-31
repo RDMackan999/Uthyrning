@@ -14,17 +14,17 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
 
     <div class="status-grid" aria-label="Status">
         <div class="status-box">
-            <strong>Authentication</strong>
-            <div>OK</div>
+            <strong>Inloggning</strong>
+            <div>Aktiv</div>
         </div>
 
         <div class="status-box">
-            <strong>Authorization</strong>
+            <strong>Behörighet</strong>
             <div><?= $escape($authorizationLabel) ?></div>
         </div>
     </div>
 
-    <p>Administrationsfunktioner byggs i kommande sprintar.</p>
+    <p>Välj ett område i adminmenyn för att hantera objekt, bokningar, kunder eller notifieringar.</p>
 
     <?php if ($showSystemAdminNavigation): ?>
         <p><a class="admin-button" href="/admin/organization-admins">Organisationsadministratörer</a></p>

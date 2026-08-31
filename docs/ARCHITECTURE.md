@@ -4,9 +4,11 @@ Codex och andra automatiserade kodändrare ska alltid läsa detta dokument innan
 
 ## Nuläge
 
-Projektets nuvarande fungerande yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
+Projektets nuvarande publika första yta är en Codex Sites-landningssida byggd med vinext, Next/React och Tailwind CSS.
 
-Det finns en första PHP-backendkärna från Sprint 1B. Den innehåller config-laddning, bootstrap, enkel routing, request/response, filbaserad loggning och enkel felhantering. Sprint 1C lägger till en lazy-loaded PDO-databasgrund. Sprint 1D lägger till en enkel migrationsmotor och en intern `migrations`-tabell. Sprint 1E lägger till gemensam grund för framtida modeller, repositories och collections. Sprint 1F lägger till grund för controllers, PHP-views och redirect-responser. Sprint 1G lägger till specialiserade HTTP-responser och HTTP-undantag. Det finns fortfarande ingen affärslogik, ingen inloggning, inget API och inga produkt- eller affärstabeller.
+PHP-backenden har vuxit från Sprint 1-grunden till en V1-yta med serverrenderad publik objektkatalog, objektdetalj, bokningsförfrågan, bekräftelse, adminflöden för objekt, priser, media, tillgänglighetsblockeringar, bokningar, kunder, notifieringar samt manuell utlämning och återlämning.
+
+Backenden är fortfarande en liten egen PHP-applikation utan stort ramverk. Databasåtkomst sker via PDO, routing sker i `routes/web.php`, vyer ligger i `resources/views/` och publika/adminflöden ska hållas separerade även om de delar Core-klasser.
 
 Det finns inte heller någon aktiv BankID-, Swish- eller Fortnox-integration.
 
@@ -96,7 +98,7 @@ tests/
 Nuvarande Core-lager ansvarar endast för infrastruktur:
 
 - `Bootstrap`: laddar config, sätter timezone, registrerar felhantering, laddar routes och dispatchar request.
-- `Config`: läser `config/config.php` och `config/database.php` om de finns, annars respektive `.example.php`, och exponerar värden via dot notation.
+- `Config`: läser `config/config.php` och `config/database.php` om de finns, annars respektive `.example.php`, kan ta lokala miljöoverridevärden och exponerar värden via dot notation.
 - `Router`: stödjer exakta `GET`- och `POST`-routes via `add()`, `get()`, `post()` och `dispatch()`.
 - `Request`: läser metod, URI, querystring och POST-data.
 - `Response`: skapar text-, HTML- och JSON-responser med statuskod och headers.
@@ -109,6 +111,7 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 - `View`: renderar enkla PHP-views från `resources/views/` och begränsar template paths till den katalogen.
 - `Logger`: skriver filbaserade loggar till `storage/logs/` och maskerar kända känsliga nycklar.
 - `ErrorHandler`: registrerar PHP error/exception handlers och visar detaljer endast i development/debug.
+- `TestEnvironmentGuard`: stoppar databastester innan första skrivning om miljön inte uttryckligen är test eller om databasnamnet ser ut som development/production.
 - `Database`: facade för framtida databasåtkomst via lazy `DatabaseConnection`.
 - `DatabaseConnection`: förbereder PDO-anslutning mot MySQL/MariaDB först när `pdo()` efterfrågas.
 - `QueryBuilder`: tom placeholder för framtida query builder och innehåller ingen SQL-logik i Sprint 1C.
@@ -123,14 +126,24 @@ Nuvarande Core-lager ansvarar endast för infrastruktur:
 
 ### Controllers och views
 
-Sprint 1F introducerar endast en minimal struktur för framtida serverrenderade backend-vyer:
+Serverrenderade PHP-vyer används för backendens publika katalogflöden och adminflöden.
 
 ```text
-app/Controllers/HomeController.php
-resources/views/pages/backend-home.php
+app/Controllers/
+resources/views/layouts/
+resources/views/pages/
+resources/views/public/
+resources/views/admin/
+resources/views/errors/
 ```
 
-`HomeController@index` renderar `pages/backend-home` via `BaseController::view()`. Detta är en teknisk testvy och innehåller ingen affärslogik.
+`HomeController@index` skickar PHP-rooten vidare till den publika katalogen på `/items`.
+
+Publika vyer ska använda publik layout, visa publika referenser och aldrig interna databas-id:n, storage keys eller adminfält.
+
+Adminvyer ska använda adminlayouten och alltid skyddas av server-side middleware och resurskontroll. Navigationen är bara en användarhjälp och ersätter aldrig behörighetskontroll.
+
+Felvyer för 403 och 404 ligger i `resources/views/errors/` och ska vara svenska, användarvänliga och fria från interna route-, auth- eller stackdetaljer.
 
 ### HTTP-lager
 
@@ -141,7 +154,7 @@ Sprint 1G gör HTTP-svaren tydligare utan att införa affärslogik:
 - Förväntade HTTP-fel kan representeras med `HttpException`.
 - Saknade routes representeras med `NotFoundException`.
 
-Routern fångar endast `HttpException` och konverterar dessa till enkla HTTP-responser. Oväntade tekniska fel ska fortsatt hanteras av projektets felhantering.
+Routern fångar `HttpException` och renderar säkra svenska felvyer för 403 och 404 när det passar. Oväntade tekniska fel ska fortsatt hanteras av projektets felhantering.
 
 ### Notifieringslager
 
@@ -166,20 +179,33 @@ Development och test ska använda en säker testtransport eller mail-capture. Ri
 
 Leverantörsspecifika mailintegrationer, SMS, push, Kivra, worker/kö, scheduler och mallredigerare ingår inte i Sprint 7D.
 
-### Tekniska routes
+### Routes
 
-`routes/web.php` innehåller endast tekniska routes:
+`routes/web.php` innehåller nu både publika V1-routes, auth/adminroutes och health check:
 
 ```text
-GET /       HomeController@index, renderar Backend initialized
-GET /health JSON health check
+GET  /                                  Redirect till /items
+GET  /items                             Publik objektlista
+GET  /items/{public_id}/{slug}          Publik objektdetalj
+GET  /items/{public_id}/{slug}/book     Publik bokningsförfrågan
+POST /items/{public_id}/{slug}/book     Skicka bokningsförfrågan
+GET  /bookings/{public_id}/confirmation Bokningsbekräftelse
+GET  /login                             Loginformulär
+POST /login                             Login
+POST /logout                            Logout
+GET  /admin                             Admin-dashboard
+GET  /admin/items                       Adminlista för objekt
+GET  /admin/bookings                    Adminlista för bokningar
+GET  /admin/customers                   Adminlista för kunder
+GET  /admin/notifications               Adminlista för notifieringar
+GET  /health                            JSON health check
 ```
 
-Dessa routes är inte ett publikt API, innehåller ingen affärslogik och kräver ingen databasanslutning.
+Adminroutes ska skyddas med autentisering, rollkontroll och resurskontroll. `/health` ska inte kräva fungerande databas.
 
 ## Nuvarande databasrelaterade struktur
 
-Sprint 1C har en PHP-baserad databasgrund och Sprint 1D har en migrationsmotor:
+Databasgrunden består av PDO-anslutning, migrationsmotor, seedning, modeller och repositories:
 
 ```text
 app/Core/Database.php
@@ -193,14 +219,18 @@ app/Core/Collection.php
 app/Core/ModelException.php
 config/database.example.php
 database/migrate.php
-database/migrations/0001_create_migrations_table.sql
+database/seed.php
+database/migrations/
+database/seeders/
 ```
 
 Databasanslutningen är lazy-loaded och skapas inte av Bootstrap eller health check. Backend ska kunna starta även om lokal databas saknas, så länge ingen databasfunktion används.
 
-Migrationsmotorn får endast läsa SQL-filer från `database/migrations/`, sorterar dem alfabetiskt och registrerar körda filer i `migrations`. Den första migrationen skapar endast den interna tabellen `migrations`; inga produkt- eller affärstabeller finns ännu.
+Migrationsmotorn får endast läsa SQL-filer från `database/migrations/`, sorterar dem alfabetiskt och registrerar körda filer i `migrations`.
 
-Modell- och repository-grunden kör ingen SQL i Sprint 1E. Framtida konkreta modeller ska ärva `BaseModel`, definiera sin tabell via `tableName()` och använda repositories först när databasåtkomst har specificerats.
+Konkreta modeller ska ärva `BaseModel`, definiera sin tabell via `tableName()` och låta repositories äga databasåtkomst. Controllers ska inte innehålla SQL.
+
+Automatiska tester ska köras mot en separat testdatabas. `tests/run.php` använder `TestEnvironmentGuard` och vägrar köra databastester om `APP_ENV` inte är `test` eller om databasnamnet ser ut som development/production.
 
 Följande filer kommer från Sites/vinext-startermallen och är inte en färdig produktdatabas:
 

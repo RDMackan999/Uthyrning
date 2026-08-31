@@ -10,6 +10,7 @@ use App\Core\CsrfTokenManager;
 use App\Core\NotFoundException;
 use App\Core\Request;
 use App\Core\Response;
+use App\Helpers\StatusLabels;
 use App\Models\Booking;
 use App\Repositories\BookingItemRepository;
 use App\Repositories\BookingRepository;
@@ -233,8 +234,8 @@ final class AdminBookingController extends BaseController
     {
         $actions = [
             'approved' => 'Godkänn',
-            'rejected' => 'Neka',
-            'cancelled' => 'Avboka',
+            'rejected' => 'Avslå',
+            'cancelled' => 'Avbryt',
         ];
         $available = [];
 
@@ -277,14 +278,7 @@ final class AdminBookingController extends BaseController
      */
     private function statusOptions(): array
     {
-        return [
-            'request' => 'Förfrågan',
-            'approved' => 'Godkänd',
-            'rejected' => 'Nekad',
-            'cancelled' => 'Avbokad',
-            'active' => 'Aktiv',
-            'completed' => 'Slutförd',
-        ];
+        return StatusLabels::bookingOptions();
     }
 
     private function statusFilter(mixed $value): ?string
@@ -318,9 +312,9 @@ final class AdminBookingController extends BaseController
     {
         return match ($request->query('message')) {
             'approved' => 'Bokningen har godkänts.',
-            'rejected' => 'Bokningen har nekats.',
-            'cancelled' => 'Bokningen har avbokats.',
-            'active' => 'Bokningen har markerats som aktiv.',
+            'rejected' => 'Bokningen har avslagits.',
+            'cancelled' => 'Bokningen har avbrutits.',
+            'active' => 'Bokningen har markerats som pågående.',
             'completed' => 'Bokningen har markerats som slutförd.',
             'handover' => 'Utlämningen har registrerats.',
             'return' => 'Återlämningen har registrerats.',

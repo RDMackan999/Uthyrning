@@ -212,9 +212,9 @@ Version 1 använder:
 
 - Förfrågan
 - Godkänd
-- Nekad
-- Avbokad
-- Aktiv
+- Avslagen
+- Avbruten
+- Pågående
 - Slutförd
 
 Historik ska sparas.

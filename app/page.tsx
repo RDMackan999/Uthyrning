@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 
 const categories = [
   { name: "Verktyg", detail: "Borrar, sågar och handverktyg", icon: "VR" },
@@ -111,14 +111,6 @@ const faqs = [
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(0);
-  const [searchMessage, setSearchMessage] = useState("");
-
-  function handleSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSearchMessage(
-      "Sökfunktionen är förberedd. Nästa steg är att koppla formuläret till PHP/MySQL och kalenderdata.",
-    );
-  }
 
   return (
     <main className="site-shell" id="hem">
@@ -130,7 +122,7 @@ export default function Home() {
 
         <nav className="desktop-nav" aria-label="Huvudmeny">
           <a href="#hem">Hem</a>
-          <a href="#objekt">Hyr objekt</a>
+          <a href="/items">Hyr objekt</a>
           <a href="#sa-fungerar-det">Så fungerar det</a>
           <a href="#uthyrare">För uthyrare</a>
           <a href="#kontakt">Kontakt</a>
@@ -165,7 +157,7 @@ export default function Home() {
         <a href="#hem" onClick={() => setMenuOpen(false)}>
           Hem
         </a>
-        <a href="#objekt" onClick={() => setMenuOpen(false)}>
+        <a href="/items" onClick={() => setMenuOpen(false)}>
           Hyr objekt
         </a>
         <a href="#sa-fungerar-det" onClick={() => setMenuOpen(false)}>
@@ -191,7 +183,7 @@ export default function Home() {
             eller faktura.
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href="#objekt">
+            <a className="button button-primary" href="/items">
               Hitta objekt
             </a>
             <a className="button button-secondary" href="#uthyrare">
@@ -218,30 +210,31 @@ export default function Home() {
       </section>
 
       <section className="search-section" aria-label="Sök uthyrningsobjekt">
-        <form className="search-form" onSubmit={handleSearch}>
+        <form className="search-form" action="/items" method="get">
           <label>
             <span>Vad vill du hyra?</span>
-            <input type="search" placeholder="Ex. släpvagn, minigrävare" />
+            <input
+              name="q"
+              type="search"
+              placeholder="Ex. släpvagn, minigrävare"
+            />
           </label>
           <label>
             <span>Ort eller postnummer</span>
-            <input type="text" placeholder="Ex. Uppsala" />
+            <input name="location" type="text" placeholder="Ex. Uppsala" />
           </label>
           <label>
             <span>Från</span>
-            <input type="date" />
+            <input name="date_from" type="date" />
           </label>
           <label>
             <span>Till</span>
-            <input type="date" />
+            <input name="date_to" type="date" />
           </label>
           <button className="button button-primary search-button" type="submit">
             Sök
           </button>
         </form>
-        <p className="form-status" aria-live="polite">
-          {searchMessage}
-        </p>
       </section>
 
       <section className="section" id="objekt" aria-labelledby="categories-title">
@@ -255,7 +248,7 @@ export default function Home() {
         </div>
         <div className="category-grid">
           {categories.map((category) => (
-            <a className="category-card" href="#exempelobjekt" key={category.name}>
+            <a className="category-card" href="/items" key={category.name}>
               <span className="category-icon" aria-hidden="true">
                 {category.icon}
               </span>
@@ -350,7 +343,7 @@ export default function Home() {
                   <strong>{listing.price}</strong>
                   <span>Betyg {listing.rating}/5</span>
                 </div>
-                <a className="button button-secondary button-full" href="#kontakt">
+                <a className="button button-secondary button-full" href="/items">
                   Visa objekt
                 </a>
               </div>

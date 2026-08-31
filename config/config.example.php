@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 return [
     'app' => [
+        // Local runtime overrides can use APP_ENV, APP_DEBUG, APP_TIMEZONE and APP_BASE_URL.
+        // Database-writing tests must be run with APP_ENV=test and a dedicated test database.
         'name' => 'Uthyrning',
         'environment' => 'development',
         'debug' => true,
