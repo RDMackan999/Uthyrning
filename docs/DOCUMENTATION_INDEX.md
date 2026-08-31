@@ -51,6 +51,7 @@ Innan kod ändras ska följande läsas:
 | `docs/PROJECT_DECISIONS.md` | Beslutslogg för viktiga tekniska och affärsmässiga beslut |
 | `docs/ROADMAP.md` | Övergripande utvecklingsplan |
 | `docs/MVP_SCOPE.md` | Vad som ingår och inte ingår i Version 1 |
+| `docs/V1_READINESS.md` | Samlad readiness-granskning inför Version 1 |
 
 ---
 
@@ -200,6 +201,7 @@ AI-assistenter ska:
 | `PROJECT_DECISIONS.md` | Aktiv |
 | `ROADMAP.md` | Aktiv |
 | `MVP_SCOPE.md` | Aktiv |
+| `V1_READINESS.md` | Aktiv |
 | `SECURITY.md` | Aktiv |
 | `DATABASE_PRINCIPLES.md` | Aktiv |
 | `DATABASE_NAMING_STANDARD.md` | Aktiv |
