@@ -176,6 +176,16 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             margin: 0 0 0.5rem;
         }
 
+        .public-item-card-image {
+            aspect-ratio: 4 / 3;
+            background: #eef2f7;
+            border-radius: 6px;
+            display: block;
+            margin: 0 0 1rem;
+            object-fit: cover;
+            width: 100%;
+        }
+
         .public-item-card h2 a,
         .public-back-link a {
             color: #172033;
@@ -215,6 +225,22 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             display: grid;
             gap: 1.5rem;
             grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+        }
+
+        .public-detail-gallery {
+            display: grid;
+            gap: 0.75rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            margin: 0 0 1.5rem;
+        }
+
+        .public-detail-gallery img {
+            aspect-ratio: 4 / 3;
+            background: #eef2f7;
+            border-radius: 6px;
+            display: block;
+            object-fit: cover;
+            width: 100%;
         }
 
         .public-detail-panel {

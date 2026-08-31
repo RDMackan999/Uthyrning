@@ -61,6 +61,10 @@ public_html/assets/uploads/*
 !/storage/sessions/.gitkeep
 /storage/temp/*
 !/storage/temp/.gitkeep
+/storage/media/original/*
+!/storage/media/original/.gitkeep
+/storage/media/variants/*
+!/storage/media/variants/.gitkeep
 
 # local codex workspace artifacts
 /work/

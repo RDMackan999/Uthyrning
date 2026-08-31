@@ -229,6 +229,54 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             padding-top: 1.25rem;
         }
 
+        .admin-media-section {
+            border-top: 1px solid #dce3ee;
+            display: grid;
+            gap: 1rem;
+            margin-top: 1.25rem;
+            padding-top: 1.25rem;
+        }
+
+        .admin-media-upload {
+            align-items: end;
+            display: grid;
+            gap: 0.75rem;
+            grid-template-columns: minmax(220px, 1fr) auto;
+        }
+
+        .admin-media-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .admin-media-card {
+            border: 1px solid #dce3ee;
+            border-radius: 8px;
+            display: grid;
+            gap: 0.75rem;
+            padding: 0.75rem;
+        }
+
+        .admin-media-card img {
+            aspect-ratio: 4 / 3;
+            background: #eef2f7;
+            border-radius: 6px;
+            display: block;
+            object-fit: cover;
+            width: 100%;
+        }
+
+        .admin-media-card-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .admin-media-card input[type="number"] {
+            max-width: 7rem;
+        }
+
         .admin-form-actions {
             display: flex;
             flex-wrap: wrap;
@@ -253,6 +301,11 @@ $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOT
             .admin-header {
                 align-items: flex-start;
                 flex-direction: column;
+            }
+
+            .admin-media-upload {
+                align-items: stretch;
+                grid-template-columns: 1fr;
             }
         }
     </style>

@@ -524,7 +524,29 @@ final class RentalItemRepository extends BaseRepository
                 item_categories.organization_id AS primary_category_organization_id,
                 item_categories.name AS primary_category_name,
                 daily_rates.amount AS daily_rate_amount,
-                daily_rates.currency AS daily_rate_currency
+                daily_rates.currency AS daily_rate_currency,
+                (
+                    SELECT cover_media_assets.public_id
+                    FROM item_media AS cover_item_media
+                    INNER JOIN media_assets AS cover_media_assets
+                        ON cover_media_assets.id = cover_item_media.media_asset_id
+                        AND cover_media_assets.organization_id = cover_item_media.organization_id
+                        AND cover_media_assets.is_active = 1
+                        AND cover_media_assets.archived_at IS NULL
+                        AND cover_media_assets.deleted_at IS NULL
+                    INNER JOIN media_variants AS cover_card_variant
+                        ON cover_card_variant.media_asset_id = cover_media_assets.id
+                        AND cover_card_variant.variant_key = :cover_variant_key
+                        AND cover_card_variant.deleted_at IS NULL
+                    WHERE cover_item_media.organization_id = rental_items.organization_id
+                        AND cover_item_media.rental_item_id = rental_items.id
+                        AND cover_item_media.is_active = 1
+                        AND cover_item_media.deleted_at IS NULL
+                    ORDER BY cover_item_media.is_primary DESC,
+                        cover_item_media.sort_order ASC,
+                        cover_item_media.id ASC
+                    LIMIT 1
+                ) AS cover_media_public_id
              FROM rental_items
              INNER JOIN organizations
                 ON organizations.id = rental_items.organization_id
@@ -597,6 +619,7 @@ final class RentalItemRepository extends BaseRepository
             'organization_status' => 'active',
             'daily_rate_type' => 'daily',
             'candidate_daily_rate_type' => 'daily',
+            'cover_variant_key' => 'card',
             'publication_status' => 'published',
         ], $overrides);
     }

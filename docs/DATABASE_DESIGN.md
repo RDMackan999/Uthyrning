@@ -1749,7 +1749,8 @@ Index:
 - Index på `item_media(organization_id, rental_item_id)`.
 - Index på `item_media(media_asset_id)`.
 - Index på `item_media(rental_item_id, is_active, sort_order)`.
-- Unik regel för aktiv primärbild per objekt bör införas när implementationen görs.
+- Index på `item_media(rental_item_id, is_primary, is_active, deleted_at)` stödjer uppslag av huvudbild.
+- Sprint 10B håller regeln om högst en aktiv huvudbild per objekt i repository/service. En portabel databaskonstraint för detta bör utredas separat innan den införs, eftersom genererade kolumner/partiella unika regler skiljer sig mellan MySQL- och MariaDB-versioner.
 
 Storage-strategi:
 

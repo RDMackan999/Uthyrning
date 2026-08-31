@@ -229,7 +229,7 @@ Principer:
 - Media ska alltid vara `organization`-scopad och åtkomst ska följa samma tenant-regler som objekt.
 - Uppladdning ska valideras i backend och audit-loggas när auditflödet finns.
 
-Sprint 10A designar detta. Ingen extern storage-provider, uppladdningscontroller eller filhantering implementeras i designsprinten.
+Sprint 10A designar detta. Sprint 10B implementerar lokal foundation för objektbilder med privat storage under `storage/media/`, säkra media-routes, uploadvalidering, bildvarianter och adminåtgärder för uppladdning, sortering, huvudbild och logisk arkivering. Ingen extern storage-provider, CDN eller dokumenthantering ingår.
 
 ## Målarkitektur
 

@@ -9,6 +9,7 @@ use App\Core\NotFoundException;
 use App\Core\Request;
 use App\Core\Response;
 use App\Repositories\CategoryRepository;
+use App\Repositories\ItemMediaRepository;
 use App\Repositories\RentalItemRepository;
 
 /**
@@ -19,6 +20,7 @@ final class PublicRentalItemController extends BaseController
     public function __construct(
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
         private readonly CategoryRepository $categoryRepository = new CategoryRepository(),
+        private readonly ItemMediaRepository $itemMediaRepository = new ItemMediaRepository(),
     ) {
         parent::__construct();
     }
@@ -63,6 +65,10 @@ final class PublicRentalItemController extends BaseController
         return $this->viewWithLayout('public/items/show', 'layouts/public', [
             'pageTitle' => (string) ($itemData['name'] ?? 'Objekt'),
             'item' => $itemData,
+            'images' => $this->itemMediaRepository->findPublicImagesForItemRoute(
+                (string) ($itemData['public_id'] ?? ''),
+                (string) ($itemData['slug'] ?? '')
+            ),
         ]);
     }
 

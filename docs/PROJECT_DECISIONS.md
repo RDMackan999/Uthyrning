@@ -1078,6 +1078,8 @@ Media ska vara `organization`-scopad. Objektmedia måste tillhöra samma organis
 
 Huvudbildens source of truth är `item_media.is_primary`. Det får finnas högst en aktiv huvudbild per objekt. Om ingen huvudbild är markerad används första aktiva bild enligt sortering som fallback.
 
+I Sprint 10B upprätthålls regeln om högst en aktiv huvudbild per objekt i repository/service. En databaskonstraint för detta skjuts upp tills projektet har valt en portabel lösning som fungerar konsekvent i både MySQL och MariaDB.
+
 Tillåtna bildformat i Version 1 är JPEG, PNG och WebP. Max filstorlek är 8 MB per bild om inget annat dokumenterat beslut tas. Publicerade bildvarianter ska minimera EXIF och privat metadata.
 
 Att ta bort en bild från ett objekt ska i första hand soft delete:a eller inaktivera relationen i `item_media`. Fysisk filradering ska separeras från logisk arkivering och hanteras av en senare säker cleanup-process.
@@ -1090,7 +1092,7 @@ Huvudbild via relationstabell gör det möjligt att ha flera bilder per objekt u
 
 ## Konsekvens
 
-Sprint 10B bör implementera foundation för media och säker uppladdning enligt denna design.
+Sprint 10B implementerar foundation för media och säker uppladdning enligt denna design med lokal privat storage, bildvarianter, adminåtgärder och proxyad bildleverans.
 
 Dokument, PDF, video, skadebilder, servicebilder, OCR, AI-bildanalys, S3/CDN och avancerad bildmoderering skjuts upp till separata sprintar.
 

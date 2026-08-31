@@ -11,9 +11,11 @@ use App\Controllers\AdminRentalFulfillmentController;
 use App\Controllers\AuthController;
 use App\Controllers\HomeController;
 use App\Controllers\ItemRateController;
+use App\Controllers\MediaDeliveryController;
 use App\Controllers\OrganizationAdminAssignmentController;
 use App\Controllers\PublicBookingController;
 use App\Controllers\PublicRentalItemController;
+use App\Controllers\RentalItemMediaController;
 use App\Controllers\RentalItemController;
 use App\Core\Config;
 use App\Core\Request;
@@ -30,9 +32,11 @@ return static function (Router $router): void {
     $adminDashboardController = AdminDashboardController::fromConfig();
     $adminNotificationController = AdminNotificationController::fromConfig();
     $adminRentalFulfillmentController = AdminRentalFulfillmentController::fromConfig();
+    $mediaDeliveryController = new MediaDeliveryController();
     $organizationAdminAssignmentController = OrganizationAdminAssignmentController::fromConfig();
     $publicBookingController = new PublicBookingController();
     $publicRentalItemController = new PublicRentalItemController();
+    $rentalItemMediaController = RentalItemMediaController::fromConfig();
     $rentalItemController = RentalItemController::fromConfig();
     $itemRateController = ItemRateController::fromConfig();
     $authenticationMiddleware = AuthenticationMiddleware::fromConfig();
@@ -47,6 +51,10 @@ return static function (Router $router): void {
 
     $router->get('/', static fn (): Response => (new HomeController())->index());
     $router->get('/items', static fn (Request $request): Response => $publicRentalItemController->index($request));
+    $router->get(
+        '/media/{public_id}/{variant}',
+        static fn (Request $request): Response => $mediaDeliveryController->publicImage($request)
+    );
     $router->get(
         '/items/{public_id}/{slug}',
         static fn (Request $request): Response => $publicRentalItemController->show($request)
@@ -214,6 +222,31 @@ return static function (Router $router): void {
     $router->post(
         '/admin/items/{public_id}',
         static fn (Request $request): Response => $rentalItemController->update($request),
+        $adminMiddleware
+    );
+    $router->get(
+        '/admin/media/{public_id}/{variant}',
+        static fn (Request $request): Response => $mediaDeliveryController->adminImage($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/media',
+        static fn (Request $request): Response => $rentalItemMediaController->store($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/media/sort',
+        static fn (Request $request): Response => $rentalItemMediaController->sort($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/media/{media_public_id}/primary',
+        static fn (Request $request): Response => $rentalItemMediaController->primary($request),
+        $adminMiddleware
+    );
+    $router->post(
+        '/admin/items/{public_id}/media/{media_public_id}/archive',
+        static fn (Request $request): Response => $rentalItemMediaController->archive($request),
         $adminMiddleware
     );
     $router->get(

@@ -96,8 +96,21 @@ $selectedCategory = $stringValue($filters['category'] ?? '');
                 $detailUrl = $publicId !== '' && $slug !== ''
                     ? '/items/' . rawurlencode($publicId) . '/' . rawurlencode($slug)
                     : '';
+                $coverMediaPublicId = $stringValue($item['cover_media_public_id'] ?? null);
+                $coverUrl = $coverMediaPublicId !== ''
+                    ? '/media/' . rawurlencode($coverMediaPublicId) . '/card'
+                    : '';
                 ?>
                 <article class="public-item-card">
+                    <?php if ($coverUrl !== ''): ?>
+                        <img
+                            class="public-item-card-image"
+                            src="<?= $escape($coverUrl) ?>"
+                            alt="<?= $escape($item['name'] ?? '') ?>"
+                            loading="lazy"
+                        >
+                    <?php endif; ?>
+
                     <h2>
                         <?php if ($detailUrl !== ''): ?>
                             <a href="<?= $escape($detailUrl) ?>"><?= $escape($item['name'] ?? '') ?></a>
