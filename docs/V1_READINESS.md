@@ -4,19 +4,19 @@
 
 ## Syfte
 
-Detta dokument sammanfattar Sprint 11A: en end-to-end-granskning av hur nära projektet är en användbar Version 1.
+Detta dokument sammanfattar V1-readiness och den senaste release candidate-granskningen.
 
-Granskningen är dokumenterande. Den ändrar inte kod, databas, vyer, frontend, tester eller affärslogik.
+Granskningen är dokumenterande och releaseförberedande. Den ändrar inte affärslogik, databasmodell, frontenddesign eller scope.
 
 ---
 
 # Granskat läge
 
-- Datum: 2026-08-31
+- Datum: 2026-09-01
 - Repo: `RDMackan999/Uthyrning`
-- Bas: `origin/main` efter Sprint 10C / PR #56
+- Bas: `origin/main` efter Sprint 11C / PR #59
 - Reviewperspektiv: publik kund, organisationsadmin/uthyrare och systemadmin
-- Slutsats: V1 är tekniskt nära ett komplett uthyrningsflöde, men bör inte betraktas som produktionsredo innan P1-punkterna är hanterade.
+- Slutsats: V1 har inga kända P0/P1-kodblockerare efter Sprint 12A-verifieringen. Release candidate kan rekommenderas för manuell staging-/produktionsnära acceptans, men skarp V1 kräver fortfarande faktisk driftkonfiguration, juridiskt innehåll och manuell tillgänglighets-/responsiv verifiering.
 
 ---
 
@@ -50,23 +50,23 @@ Följande dokument lästes inför granskningen:
 
 | Område | Status | P0 | P1 | P2 | P3 | Kommentar |
 |---|---:|---:|---:|---:|---:|---|
-| Publik objektkatalog | Redo för V1-verifiering | 0 | 0 | 0 | 1 | Landningssidans CTA, sök och kategorilänkar leder in i PHP-katalogen. |
-| Objektdetalj/media | Delvis redo | 0 | 0 | 1 | 1 | Bilder visas via kontrollerade routes. Dokument/manualer saknas. |
-| Bokning | Delvis redo | 0 | 0 | 1 | 0 | Bokningsförfrågan fungerar konceptuellt, men behöver full manuell V1-verifiering. |
-| Tillgänglighet | Delvis redo | 0 | 0 | 1 | 1 | Kalender och manuella block finns. Serviceblockering saknas eftersom service inte är byggt. |
-| Admin objekt | Delvis redo | 0 | 0 | 2 | 1 | Objekt, pris, publicering och media finns, men tekniska ID:n läcker i UI. |
-| Admin bokningar | Delvis redo | 0 | 0 | 1 | 0 | Statusflöde och fulfillment finns. Avtalskoppling saknas. |
-| Kunder | Delvis redo | 0 | 0 | 1 | 0 | Kundregister och historik finns. GDPR/anonymisering är inte implementerad. |
-| Genomförande | Redo för V1-verifiering | 0 | 0 | 1 | 0 | Utlämning/återlämning finns. Full service- och dokumenthantering är post-V1. |
-| Notifieringar | Delvis redo | 0 | 0 | 1 | 1 | E-postflöde och retry finns. Produktionstransport måste konfigureras och verifieras. |
-| Behörighet | Delvis redo | 0 | 0 | 1 | 0 | Org-scope finns och verkar konsekvent. Behöver E2E-verifieras i separat testmiljö. |
-| Säkerhet | Delvis redo | 0 | 0 | 1 | 0 | CSRF/PDO/loggningsprinciper och testisolering finns. Prod-check återstår. |
-| Navigation | Redo för V1-verifiering | 0 | 0 | 1 | 0 | Publik kundresa och huvudnavigation i admin är sammanhållen. Systemadminflöden behöver fortsatt verifieras. |
-| Fel-UX | Redo för V1-verifiering | 0 | 0 | 0 | 0 | Svenska 403/404-vyer finns utan interna detaljer. |
-| Responsivt | Oklart | 0 | 0 | 1 | 0 | CSS är responsiv, men ingen visuell mobil/Desktop-verifiering gjordes i reviewn. |
-| Tillgänglighet | Delvis redo | 0 | 0 | 2 | 0 | Semantiska element finns. Behöver tangentbordsskärmning och kalendertest med skärmläsare. |
-| Testisolering | Redo för V1-verifiering | 0 | 0 | 0 | 0 | Testsviten vägrar köra databastester utan `APP_ENV=test` och dedikerad testdatabas. |
-| Produktionsredo | Delvis redo | 0 | 0 | 2 | 1 | Production config gate, säkerhetsheaders och minimal health check finns. Manuell deployment-, backup/restore-, SMTP- och tillgänglighetsverifiering återstår. |
+| Publik objektkatalog | RC-verifierad | 0 | 0 | 0 | 1 | `/items` svarar lokalt och automatiska tester verifierar endast publikt bokningsbara objekt. Pagination är post-V1. |
+| Objektdetalj/media | RC-verifierad med manuellt innehållsbehov | 0 | 0 | 1 | 1 | Detaljvy svarar, fallback för saknad bild fungerar och mediaflödet testas automatiskt. Verkliga bilder/innehåll behöver granskas före skarp drift. |
+| Bokning | RC-verifierad | 0 | 0 | 0 | 0 | Publik bokningsförfrågan skapades i isolerad testdatabas och automatiska tester täcker snapshots, överlapp, CSRF och bekräftelse. |
+| Tillgänglighet | RC-verifierad med manuell tillgänglighetskontroll kvar | 0 | 0 | 1 | 1 | Kalender och blockeringsregler testas automatiskt. Skärmläsar-/tangentbordsrunda i faktisk browser återstår. |
+| Admin objekt | RC-verifierad | 0 | 0 | 0 | 1 | Objekt, pris, publicering, media och huvudnavigation täcks av tester och admin-smoke. Större listor saknar pagination. |
+| Admin bokningar | RC-verifierad | 0 | 0 | 0 | 0 | Admin-smoke verifierade godkännande, utlämning, återlämning och slutförd bokning i testdatabas. |
+| Kunder | RC-verifierad med GDPR-process kvar | 0 | 0 | 1 | 0 | Kund skapas via gästbokning och kundadmin täcks av tester. Retention/anonymisering kräver senare process. |
+| Genomförande | RC-verifierad | 0 | 0 | 0 | 0 | Utlämning och återlämning verifierades lokalt med faktisk fulfillmentdata och statushistorik. |
+| Notifieringar | RC-verifierad i testtransport | 0 | 0 | 1 | 1 | Bokningsnotifieringar skapades och skickades via test/development-flöde. Produktions-SMTP kräver manuell driftverifiering. |
+| Behörighet | RC-verifierad | 0 | 0 | 0 | 0 | Testsviten täcker systemadmin, organization admin och cross-tenant-skydd. Systemadminnavigation finns i adminlayout. |
+| Säkerhet | RC-verifierad med driftgate kvar | 0 | 0 | 1 | 0 | CSRF, PDO-principer, säkerhetsheaders, health payload, auth och production guard täcks av tester/smoke. Faktisk production config måste verifieras i driftmiljö. |
+| Navigation | RC-verifierad | 0 | 0 | 0 | 0 | Publika och administrativa huvudvägar svarar, och systemadminflödet finns i navigation när rollen har rättighet. |
+| Fel-UX | RC-verifierad | 0 | 0 | 0 | 0 | 404-smoke visar svensk felsida utan stacktrace eller interna detaljer; oinloggad admin redirectar till login. |
+| Responsivt | Delvis verifierad | 0 | 0 | 1 | 0 | CSS har responsiva regler och build passerar. Visuell mobil/desktop-verifiering i riktig browser återstår. |
+| Tillgänglighet | Delvis verifierad | 0 | 0 | 1 | 0 | Labels, focus states och ARIA finns i kritiska vyer. Manuell tangentbords- och skärmläsarverifiering återstår. |
+| Testisolering | RC-verifierad | 0 | 0 | 0 | 0 | Migration, seed och testsvit kördes mot separat `uthyrning_test_rc`; testskydd stoppar osäkra databaser. |
+| Produktionsredo | Konfiguration krävs | 0 | 0 | 2 | 1 | Production config gate finns. Skarp drift kräver HTTPS, SMTP, backup/restore, storage-rättigheter och smoke test i faktisk miljö. |
 
 ---
 
@@ -112,7 +112,110 @@ Kvar efter Sprint 11C:
 
 ---
 
+# Sprint 12A release candidate-uppdatering
+
+Sprint 12A verifierar V1 release candidate från `origin/main` efter PR #59.
+
+Miljö:
+
+- Datum: 2026-09-01
+- Branch: `codex/sprint-12-v1-release-candidate`
+- Databas: separat lokal testdatabas `uthyrning_test_rc`
+- PHP: 8.3.30
+- Databasdrift: lokal MySQL via Laragon
+- Frontend/build: befintlig React/Vinext/Sites-struktur
+
+Automatisk verifiering:
+
+- `APP_ENV=test DB_DATABASE=uthyrning_test_rc php database/migrate.php`: passerade.
+- `APP_ENV=test DB_DATABASE=uthyrning_test_rc php database/seed.php`: passerade.
+- `APP_ENV=test DB_DATABASE=uthyrning_test_rc php tests/run.php`: 59 passerade, 0 fel.
+- PHP syntaxkontroll på samtliga PHP-filer under `app`, `config`, `database`, `public`, `resources`, `routes` och `tests`: passerade.
+- `composer validate --no-check-publish`: passerade.
+- `npm run lint`: passerade med 0 fel och 1 känd befintlig Next-varning för `<img>` i landningssidan.
+- `npm run build`: passerade.
+- `git diff --check`: passerade.
+
+Lokal HTTP-smoke:
+
+- `GET /health`: 200 och endast `{"status":"ok"}`.
+- `GET /items`: 200.
+- `GET /items/{public_id}/{slug}`: 200.
+- `GET /items/{public_id}/{slug}/book`: 200 med CSRF-cookie och bokningsformulär.
+- Publik bokningsförfrågan skapades i testdatabasen.
+- Adminlogin med tillfällig testadmin fungerade.
+- `/admin`, `/admin/items`, `/admin/bookings`, `/admin/customers`, `/admin/notifications` och `/admin/organization-admins` svarade 200 efter inloggning.
+- Adminlivscykeln för testbokning verifierades: `request` -> `approved` -> `active` -> `completed`.
+- 404-smoke visade svensk felsida utan stacktrace.
+- Oinloggad `/admin` redirectade till `/login`.
+- Felaktig login visade generiskt felmeddelande.
+- Säkerhetsheaders fanns på verifierade HTML- och JSON-svar.
+
+Acceptansmatris:
+
+| Område | Resultat | Klassning | Kommentar |
+|---|---|---|---|
+| Full automatiserad regression | Godkänd | Ingen blockerare | 59/0 PHP-tester plus lint/build/composer/diff-check. |
+| Ren testdatabas | Godkänd | Ingen blockerare | Separat `uthyrning_test_rc` skapades och migrerades. |
+| Publik kundresa | Godkänd i smoke/test | Ingen blockerare | Lista, detalj, bokningsformulär, submit och bekräftelse verifierades lokalt. |
+| Adminlogin | Godkänd i smoke/test | Ingen blockerare | Tillfällig testadmin användes endast i testdatabasen. |
+| Systemadmin | Godkänd i smoke/test | Ingen blockerare | Organisationsadminflöde nås i navigation och svarar 200 för systemadmin. |
+| Organization/cross-tenant | Godkänd i automatiska tester | Ingen blockerare | Testsviten täcker scope, 404-liknande nekad åtkomst och audit för global systemadminåtkomst. |
+| Objekt/pris/media | Godkänd i automatiska tester | P3 kvar | Foundation fungerar. Pagination och större media/prestandagranskning är post-V1. |
+| Bokningslivscykel | Godkänd i smoke/test | Ingen blockerare | Testbokning slutfördes med fulfillmentdata och statushistorik. |
+| Kund | Godkänd i smoke/test | P2 kvar | Kund skapades via gästbokning. GDPR-retention/anonymisering är senare process. |
+| Notifieringar | Godkänd i testtransport | Konfiguration krävs | Testnotifieringar skapades/skickades. Production-SMTP måste verifieras i driftmiljö. |
+| Fulfillment | Godkänd i smoke/test | Ingen blockerare | Utlämning och återlämning verifierades. |
+| Säkerhet | Godkänd för RC | Konfiguration krävs | CSRF, auth, headers, minimal health och production guard verifierades. Production config måste sättas skarpt. |
+| Juridiskt innehåll | Ej komplett som standardsidor | Content/business input required | Villkor, integritetspolicy, kontakt/FAQ finns inte som fulla publika PHP-standardsidor. |
+| Tillgänglighet | Delvis verifierad | Manual verification required | Kod och markup har bra grund, men tangentbord/skärmläsare ska testas manuellt. |
+| Responsivt | Delvis verifierad | Manual verification required | Responsiva regler och build passerar; visuell mobil/desktop-verifiering återstår. |
+| Deployment | Dokumenterat men ej skarpt verifierat | Configuration required | HTTPS, SMTP, backup/restore, storage-rättigheter och produktion smoke test kvar i riktig miljö. |
+
+Kvarvarande klassning efter Sprint 12A:
+
+## Code blockers
+
+Inga kända P0- eller P1-kodblockerare.
+
+## Configuration required
+
+- Production config enligt `docs/DEPLOYMENT.md`: HTTPS, säkra cookies, `APP_DEBUG=false`, `SECURITY_FORCE_HTTPS=true`, produktionsdatabas och `MAIL_TRANSPORT=smtp`.
+- SMTP ska verifieras i faktisk driftmiljö med riktig provider eller godkänd mail-capture.
+- Storage- och media-kataloger ska vara skrivbara av webbservern men inte publikt exponerade.
+- Backup och restore ska testas för både databas och `storage/media`.
+
+## Content/business input required
+
+- Juridiskt granskade texter för villkor och integritetspolicy.
+- Kommersiell kontaktinformation, företagspresentation och FAQ-innehåll för skarp publik drift.
+- Beslut om vilka juridiska standardsidor som måste finnas före första publika release om landningssidans befintliga ankare inte räcker.
+
+## Manual verification required
+
+- Visuell mobil-, surfplatte- och desktopverifiering i faktisk browser.
+- Tangentbordsnavigering och skärmläsarliknande kontroll av kalender, formulär och adminflöden.
+- Manuell staging-/production-smoke enligt `docs/DEPLOYMENT.md`.
+- Granskning av produktionsloggar efter smoke test för att säkerställa att inga hemligheter, stack traces eller känsliga data läcker.
+
+## Post-V1
+
+- Pagination för större listor.
+- Prestandagranskning av bildleverans och större kataloger.
+- Full dokument-/manualhantering.
+- Avtal/PDF/digital signering.
+- BankID, Swish, Fortnox, PWA offline, API och marknadsplats.
+- GDPR-retention och anonymiseringsverktyg.
+
+Sprint 12A-rekommendation:
+
+V1 kan behandlas som release candidate `v1.0.0-rc.1` efter merge av denna PR, under förutsättning att återstående configuration/content/manual verification hanteras innan skarp V1-release.
+
+---
+
 # Prioriterade problem
+
+Följande avsnitt är den historiska Sprint 11A-klassningen. Den senaste gällande klassningen finns i Sprint 12A-sektionen ovan.
 
 ## P0
 
