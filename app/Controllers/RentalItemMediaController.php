@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Core\BaseController;
 use App\Core\CsrfTokenManager;
+use App\Core\Logger;
 use App\Core\MediaException;
 use App\Core\NotFoundException;
 use App\Core\Request;
@@ -23,15 +24,21 @@ final class RentalItemMediaController extends BaseController
 {
     private readonly CsrfTokenManager $csrfTokenManager;
 
+    private readonly Logger $logger;
+
     public function __construct(
         private readonly RentalItemRepository $rentalItemRepository = new RentalItemRepository(),
         private readonly ItemMediaService $itemMediaService = new ItemMediaService(),
         private readonly OrganizationAuthorizationService $authorizationService = new OrganizationAuthorizationService(),
         ?CsrfTokenManager $csrfTokenManager = null,
+        ?Logger $logger = null,
     ) {
         parent::__construct();
 
         $this->csrfTokenManager = $csrfTokenManager ?? CsrfTokenManager::fromConfig();
+        $this->logger = $logger ?? new Logger(
+            dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs'
+        );
     }
 
     public static function fromConfig(): self
@@ -49,9 +56,9 @@ final class RentalItemMediaController extends BaseController
 
         try {
             $this->itemMediaService->uploadImages($request, $item, $request->files('images'));
-        } catch (MediaException) {
-            return $this->redirectToEdit($item, 'media_error=upload');
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            $this->logUploadFailure($item, $exception);
+
             return $this->redirectToEdit($item, 'media_error=upload');
         }
 
@@ -134,5 +141,33 @@ final class RentalItemMediaController extends BaseController
         return $this->redirect(
             '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/edit?' . $queryString
         );
+    }
+
+    private function logUploadFailure(RentalItem $item, Throwable $exception): void
+    {
+        $itemData = $item->toArray();
+
+        $this->logger->error('Item media upload failed.', [
+            'action' => 'item_media_upload',
+            'exception' => $exception::class,
+            'message' => $exception instanceof MediaException
+                ? $exception->getMessage()
+                : 'Unexpected media upload failure.',
+            'previous_exception' => $this->rootExceptionClass($exception),
+            'rental_item_id' => (int) ($itemData['id'] ?? 0),
+            'rental_item_public_id' => (string) ($itemData['public_id'] ?? ''),
+            'organization_id' => (int) ($itemData['organization_id'] ?? 0),
+        ]);
+    }
+
+    private function rootExceptionClass(Throwable $exception): ?string
+    {
+        $root = $exception;
+
+        while ($root->getPrevious() !== null) {
+            $root = $root->getPrevious();
+        }
+
+        return $root === $exception ? null : $root::class;
     }
 }
