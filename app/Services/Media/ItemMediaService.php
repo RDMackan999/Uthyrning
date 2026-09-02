@@ -62,10 +62,25 @@ final class ItemMediaService
 
             foreach ($normalizedFiles as $file) {
                 $metadata = $this->validationService->validate($file);
+                $variants = $this->processingService->createVariants($metadata['tmp_name'], $metadata['mime_type']);
+
+                foreach ($variants as $variant) {
+                    $temporaryFiles[] = $variant['path'];
+                }
+
                 $baseStorageKey = $this->storageKeyBase($organizationId);
                 $originalStorageKey = 'original/' . $baseStorageKey . '.' . $metadata['extension'];
                 $this->storage->store($metadata['tmp_name'], $originalStorageKey);
                 $storedKeys[] = $originalStorageKey;
+
+                $storedVariants = [];
+
+                foreach ($variants as $variantKey => $variant) {
+                    $variantStorageKey = 'variants/' . $baseStorageKey . '-' . $variantKey . '.' . $metadata['extension'];
+                    $this->storage->store($variant['path'], $variantStorageKey);
+                    $storedKeys[] = $variantStorageKey;
+                    $storedVariants[$variantKey] = $variant + ['storage_key' => $variantStorageKey];
+                }
 
                 $asset = $this->mediaAssetRepository->create([
                     'organization_id' => $organizationId,
@@ -81,20 +96,14 @@ final class ItemMediaService
                     'uploaded_by_user_id' => $uploadedByUserId,
                 ]);
                 $assetData = $asset->toArray();
-                $variants = $this->processingService->createVariants($metadata['tmp_name'], $metadata['mime_type']);
 
-                foreach ($variants as $variantKey => $variant) {
-                    $temporaryFiles[] = $variant['path'];
-                    $variantStorageKey = 'variants/' . $baseStorageKey . '-' . $variantKey . '.' . $metadata['extension'];
-                    $this->storage->store($variant['path'], $variantStorageKey);
-                    $storedKeys[] = $variantStorageKey;
-
+                foreach ($storedVariants as $variantKey => $variant) {
                     $this->mediaVariantRepository->create([
                         'media_asset_id' => (int) ($assetData['id'] ?? 0),
                         'variant_key' => $variantKey,
                         'mime_type' => $variant['mime_type'],
                         'storage_disk_key' => 'local',
-                        'storage_key' => $variantStorageKey,
+                        'storage_key' => $variant['storage_key'],
                         'file_size_bytes' => $variant['file_size_bytes'],
                         'width' => $variant['width'],
                         'height' => $variant['height'],

@@ -2,11 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Contracts\MediaStorageInterface;
+use App\Controllers\RentalItemMediaController;
+use App\Core\AuthorizationContext;
 use App\Core\Collection;
 use App\Core\BookingException;
 use App\Core\Config;
 use App\Core\Database;
 use App\Core\HttpException;
+use App\Core\Logger;
 use App\Core\MigrationRunner;
 use App\Core\MediaException;
 use App\Core\ModelException;
@@ -160,6 +164,106 @@ final class TestSmtpMailer extends PHPMailer
         }
 
         return true;
+    }
+}
+
+final class DestructiveTestMediaStorage implements MediaStorageInterface
+{
+    /**
+     * @var array<string, string>
+     */
+    private array $sourcePaths = [];
+
+    public function __construct(
+        private readonly string $rootPath,
+        private readonly ?string $failOnPrefix = null,
+        private readonly string $failureMessage = 'Simulated media storage failure.',
+    ) {
+    }
+
+    public function store(string $sourcePath, string $storageKey): void
+    {
+        $this->sourcePaths[$storageKey] = $sourcePath;
+
+        if ($this->failOnPrefix !== null && str_starts_with($storageKey, $this->failOnPrefix)) {
+            throw new RuntimeException($this->failureMessage);
+        }
+
+        $targetPath = $this->pathForKey($storageKey);
+        $directory = dirname($targetPath);
+
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new RuntimeException('Test media storage directory could not be created.');
+        }
+
+        $stored = str_starts_with($storageKey, 'original/')
+            ? rename($sourcePath, $targetPath)
+            : copy($sourcePath, $targetPath);
+
+        if (!$stored) {
+            throw new RuntimeException('Test media file could not be stored.');
+        }
+    }
+
+    public function read(string $storageKey): string
+    {
+        $content = file_get_contents($this->pathForKey($storageKey));
+
+        if ($content === false) {
+            throw new RuntimeException('Test media file could not be read.');
+        }
+
+        return $content;
+    }
+
+    public function exists(string $storageKey): bool
+    {
+        return is_file($this->pathForKey($storageKey));
+    }
+
+    public function delete(string $storageKey): void
+    {
+        $path = $this->pathForKey($storageKey);
+
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function sourcePaths(): array
+    {
+        return $this->sourcePaths;
+    }
+
+    public function removeRoot(): void
+    {
+        if (!is_dir($this->rootPath)) {
+            return;
+        }
+
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($this->rootPath, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        foreach ($iterator as $entry) {
+            if ($entry->isDir()) {
+                @rmdir($entry->getPathname());
+            } else {
+                @unlink($entry->getPathname());
+            }
+        }
+
+        @rmdir($this->rootPath);
+    }
+
+    private function pathForKey(string $storageKey): string
+    {
+        return rtrim($this->rootPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR
+            . str_replace('/', DIRECTORY_SEPARATOR, $storageKey);
     }
 }
 
@@ -473,6 +577,24 @@ function createTestImage(string $mimeType = 'image/jpeg', int $width = 64, int $
     }
 
     return $path;
+}
+
+/**
+ * @return list<string>
+ */
+function mediaTemporaryFiles(): array
+{
+    $pattern = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp'
+        . DIRECTORY_SEPARATOR . 'media-*';
+    $files = glob($pattern);
+
+    if (!is_array($files)) {
+        return [];
+    }
+
+    sort($files);
+
+    return array_values($files);
 }
 
 function uploadedImageArray(string $path, string $name, string $mimeType): array
@@ -1270,9 +1392,11 @@ $runner->test('media image services validate, process, scope and deliver item im
 
         $jpeg = createTestImage('image/jpeg', 90, 60);
         $png = createTestImage('image/png', 80, 80);
+        $webp = createTestImage('image/webp', 85, 65);
         $draftImage = createTestImage('image/jpeg', 70, 50);
         $sourceImages[] = $jpeg;
         $sourceImages[] = $png;
+        $sourceImages[] = $webp;
         $sourceImages[] = $draftImage;
         $invalidPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp'
             . DIRECTORY_SEPARATOR . 'not-an-image-' . $suffix . '.jpg';
@@ -1294,6 +1418,16 @@ $runner->test('media image services validate, process, scope and deliver item im
         assertTrue($processed['thumbnail']['width'] <= 90, 'Thumbnail should not upscale source width.');
         assertTrue($processed['thumbnail']['height'] <= 60, 'Thumbnail should not upscale source height.');
         foreach ($processed as $variant) {
+            if (is_file($variant['path'])) {
+                @unlink($variant['path']);
+            }
+        }
+
+        $webpMetadata = $validationService->validate(uploadedImageArray($webp, 'safe.webp', 'image/webp'));
+        assertSame('image/webp', $webpMetadata['mime_type'], 'WebP MIME should be detected from file content.');
+        $webpVariants = (new ImageProcessingService())->createVariants($webp, 'image/webp');
+        assertSame(['thumbnail', 'card', 'detail'], array_keys($webpVariants), 'WebP variants should remain supported.');
+        foreach ($webpVariants as $variant) {
             if (is_file($variant['path'])) {
                 @unlink($variant['path']);
             }
@@ -1531,6 +1665,260 @@ $runner->test('media image services validate, process, scope and deliver item im
 
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+    }
+});
+
+$runner->test('media upload supports destructive move, rollback cleanup and safe controller logging', static function () use (
+    $seederRunner,
+    $repository,
+    $rentalItemRepository,
+    $itemRateRepository
+): void {
+    $seederRunner->run();
+
+    $pdo = pdo();
+    $suffix = bin2hex(random_bytes(4));
+    $temporaryRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'temp';
+    $successStorage = new DestructiveTestMediaStorage(
+        $temporaryRoot . DIRECTORY_SEPARATOR . 'destructive-success-' . $suffix
+    );
+    $failureStorage = new DestructiveTestMediaStorage(
+        $temporaryRoot . DIRECTORY_SEPARATOR . 'destructive-failure-' . $suffix,
+        'variants/'
+    );
+    $controllerSecret = 'session_secret_' . $suffix;
+    $controllerStorage = new DestructiveTestMediaStorage(
+        $temporaryRoot . DIRECTORY_SEPARATOR . 'destructive-controller-' . $suffix,
+        'variants/',
+        'Simulated failure containing ' . $controllerSecret
+    );
+    $logDirectory = $temporaryRoot . DIRECTORY_SEPARATOR . 'upload-log-' . $suffix;
+    $sourceImages = [];
+    $organizationId = 0;
+    $rentalItemId = 0;
+    $temporaryFilesBefore = mediaTemporaryFiles();
+
+    try {
+        $organizationId = createOrganization(
+            'Destructive Media Org ' . $suffix,
+            'destructive-media-org-' . $suffix
+        );
+        $globalCategory = $repository->findBySlug('verktyg');
+        assertNotNull($globalCategory, 'Global category should exist for destructive media tests.');
+        $item = createBookableRentalItem(
+            $organizationId,
+            (int) ($globalCategory->toArray()['id'] ?? 0),
+            'destructive-media-item-' . $suffix,
+            'Destructive Media Item ' . $suffix,
+            $rentalItemRepository,
+            $itemRateRepository
+        );
+        $itemData = $item->toArray();
+        $rentalItemId = (int) ($itemData['id'] ?? 0);
+        $request = new Request(
+            'POST',
+            '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/media',
+            [],
+            [],
+            [],
+            [
+                'REMOTE_ADDR' => '127.0.0.1',
+                'HTTP_USER_AGENT' => 'Uthyrning destructive media test',
+            ]
+        );
+
+        $png = createTestImage('image/png', 96, 72);
+        $sourceImages[] = $png;
+        $createdAssets = (new ItemMediaService(storage: $successStorage))->uploadImages(
+            $request,
+            $item,
+            uploadedImagesArray([uploadedImageArray($png, 'destructive.png', 'image/png')])
+        );
+
+        assertSame(1, count($createdAssets), 'Destructive original move should still create one media asset.');
+        assertFalse(is_file($png), 'Destructive storage should remove the original source path.');
+        assertSame(
+            1,
+            (int) $pdo->query('SELECT COUNT(*) FROM media_assets WHERE organization_id = ' . $organizationId)->fetchColumn(),
+            'Destructive upload should create one media asset row.'
+        );
+        assertSame(
+            3,
+            (int) $pdo->query(
+                'SELECT COUNT(*) FROM media_variants INNER JOIN media_assets ON media_assets.id = media_variants.media_asset_id'
+                . ' WHERE media_assets.organization_id = ' . $organizationId
+            )->fetchColumn(),
+            'Destructive upload should create thumbnail, card and detail metadata.'
+        );
+        assertSame(
+            1,
+            (int) $pdo->query('SELECT COUNT(*) FROM item_media WHERE organization_id = ' . $organizationId)->fetchColumn(),
+            'Destructive upload should link the media asset to the rental item.'
+        );
+
+        $successSourcePaths = $successStorage->sourcePaths();
+        assertSame(4, count($successSourcePaths), 'Original and three variants should be stored.');
+        foreach ($successSourcePaths as $storageKey => $sourcePath) {
+            assertTrue($successStorage->exists($storageKey), 'Stored original or variant should exist after success.');
+
+            if (str_starts_with($storageKey, 'variants/')) {
+                assertFalse(is_file($sourcePath), 'Temporary variant should be removed after successful storage.');
+            }
+        }
+        assertSame(
+            $temporaryFilesBefore,
+            mediaTemporaryFiles(),
+            'Successful destructive upload should not leave temporary variants behind.'
+        );
+
+        $assetCountBeforeFailure = (int) $pdo->query(
+            'SELECT COUNT(*) FROM media_assets WHERE organization_id = ' . $organizationId
+        )->fetchColumn();
+        $variantCountBeforeFailure = (int) $pdo->query(
+            'SELECT COUNT(*) FROM media_variants INNER JOIN media_assets ON media_assets.id = media_variants.media_asset_id'
+            . ' WHERE media_assets.organization_id = ' . $organizationId
+        )->fetchColumn();
+        $relationCountBeforeFailure = (int) $pdo->query(
+            'SELECT COUNT(*) FROM item_media WHERE organization_id = ' . $organizationId
+        )->fetchColumn();
+        $failurePng = createTestImage('image/png', 84, 63);
+        $sourceImages[] = $failurePng;
+
+        assertThrows(
+            static fn () => (new ItemMediaService(storage: $failureStorage))->uploadImages(
+                $request,
+                $item,
+                uploadedImagesArray([uploadedImageArray($failurePng, 'rollback.png', 'image/png')])
+            ),
+            MediaException::class,
+            'Variant storage failure should return a controlled media exception.'
+        );
+
+        assertSame(
+            $assetCountBeforeFailure,
+            (int) $pdo->query('SELECT COUNT(*) FROM media_assets WHERE organization_id = ' . $organizationId)->fetchColumn(),
+            'Failed upload should not leave media asset rows.'
+        );
+        assertSame(
+            $variantCountBeforeFailure,
+            (int) $pdo->query(
+                'SELECT COUNT(*) FROM media_variants INNER JOIN media_assets ON media_assets.id = media_variants.media_asset_id'
+                . ' WHERE media_assets.organization_id = ' . $organizationId
+            )->fetchColumn(),
+            'Failed upload should not leave media variant rows.'
+        );
+        assertSame(
+            $relationCountBeforeFailure,
+            (int) $pdo->query('SELECT COUNT(*) FROM item_media WHERE organization_id = ' . $organizationId)->fetchColumn(),
+            'Failed upload should not leave item media relations.'
+        );
+        foreach ($failureStorage->sourcePaths() as $storageKey => $sourcePath) {
+            assertFalse($failureStorage->exists($storageKey), 'Rollback should remove partially stored media files.');
+            assertFalse(is_file($sourcePath), 'Rollback should remove generated temporary variants.');
+        }
+        assertSame(
+            $temporaryFilesBefore,
+            mediaTemporaryFiles(),
+            'Failed destructive upload should not leave temporary variants behind.'
+        );
+
+        $controllerPng = createTestImage('image/png', 75, 55);
+        $sourceImages[] = $controllerPng;
+        $uri = '/admin/items/' . rawurlencode((string) ($itemData['public_id'] ?? '')) . '/media';
+        $csrfRequest = requestWithValidCsrf('POST', $uri);
+        $controllerRequest = new Request(
+            'POST',
+            $uri,
+            [],
+            $csrfRequest->post(),
+            $csrfRequest->cookie(),
+            [
+                'REMOTE_ADDR' => '127.0.0.1',
+                'HTTP_USER_AGENT' => 'Uthyrning safe logging test',
+            ],
+            ['images' => uploadedImagesArray([
+                uploadedImageArray($controllerPng, 'private-person-name.png', 'image/png'),
+            ])]
+        );
+        $controllerRequest->setRouteParams(['public_id' => (string) ($itemData['public_id'] ?? '')]);
+        $controllerRequest->setAuthorizationContext(new AuthorizationContext(
+            999999,
+            [],
+            [OrganizationAuthorizationService::ORGANIZATION_ADMIN => [$organizationId]]
+        ));
+        $controller = new RentalItemMediaController(
+            itemMediaService: new ItemMediaService(storage: $controllerStorage),
+            logger: new Logger($logDirectory)
+        );
+        $response = $controller->store($controllerRequest);
+
+        assertSame(302, $response->statusCode(), 'Caught upload failure should keep redirect UX.');
+        assertTrue(
+            str_ends_with((string) ($response->headers()['Location'] ?? ''), '?media_error=upload'),
+            'Caught upload failure should keep the generic media_error response.'
+        );
+        assertFalse(str_contains($response->content(), $controllerSecret), 'Response must not expose the underlying exception.');
+        assertFalse(str_contains($response->content(), $controllerPng), 'Response must not expose temporary filesystem paths.');
+
+        $logPath = $logDirectory . DIRECTORY_SEPARATOR . 'app-' . date('Y-m-d') . '.log';
+        $logContent = is_file($logPath) ? (string) file_get_contents($logPath) : '';
+        assertTrue(str_contains($logContent, 'Item media upload failed.'), 'Caught upload failure should create an ERROR log.');
+        assertTrue(str_contains($logContent, '"action":"item_media_upload"'), 'Upload log should contain a safe event key.');
+        assertTrue(str_contains($logContent, '"previous_exception":"RuntimeException"'), 'Upload log should identify the underlying exception class.');
+        assertTrue(str_contains($logContent, '"organization_id":' . $organizationId), 'Upload log should contain organization scope.');
+        assertTrue(str_contains($logContent, '"rental_item_id":' . $rentalItemId), 'Upload log should contain the internal item reference.');
+        assertFalse(str_contains($logContent, $controllerSecret), 'Upload log must not contain arbitrary underlying exception messages.');
+        assertFalse(str_contains($logContent, 'private-person-name.png'), 'Upload log must not contain original filenames.');
+        assertFalse(str_contains($logContent, $controllerPng), 'Upload log must not contain temporary filesystem paths.');
+        assertFalse(str_contains($logContent, 'csrf_token'), 'Upload log must not contain CSRF data.');
+        assertFalse(str_contains($logContent, 'uthyrning_csrf'), 'Upload log must not contain cookies.');
+        assertSame(
+            $temporaryFilesBefore,
+            mediaTemporaryFiles(),
+            'Controller-handled upload failure should clean all generated variants.'
+        );
+        assertSame(
+            $assetCountBeforeFailure,
+            (int) $pdo->query('SELECT COUNT(*) FROM media_assets WHERE organization_id = ' . $organizationId)->fetchColumn(),
+            'Controller-handled upload failure should not create orphan media assets.'
+        );
+    } finally {
+        $successStorage->removeRoot();
+        $failureStorage->removeRoot();
+        $controllerStorage->removeRoot();
+
+        if (is_dir($logDirectory)) {
+            foreach (glob($logDirectory . DIRECTORY_SEPARATOR . '*') ?: [] as $logFile) {
+                if (is_file($logFile)) {
+                    @unlink($logFile);
+                }
+            }
+            @rmdir($logDirectory);
+        }
+
+        foreach ($sourceImages as $sourceImage) {
+            if (is_file($sourceImage)) {
+                @unlink($sourceImage);
+            }
+        }
+
+        if ($rentalItemId > 0) {
+            $statement = $pdo->prepare('DELETE FROM audit_logs WHERE subject_type = :subject_type AND subject_id = :subject_id');
+            $statement->execute(['subject_type' => 'rental_item', 'subject_id' => $rentalItemId]);
+            $pdo->exec(
+                'DELETE FROM media_variants WHERE media_asset_id IN ('
+                . 'SELECT id FROM media_assets WHERE organization_id = ' . $organizationId . ')'
+            );
+            $pdo->exec('DELETE FROM item_media WHERE organization_id = ' . $organizationId);
+            $pdo->exec('DELETE FROM media_assets WHERE organization_id = ' . $organizationId);
+            $pdo->exec('DELETE FROM item_rates WHERE rental_item_id = ' . $rentalItemId);
+            $pdo->exec('DELETE FROM item_category_relations WHERE rental_item_id = ' . $rentalItemId);
+            $pdo->exec('DELETE FROM rental_items WHERE id = ' . $rentalItemId);
+        }
+
+        if ($organizationId > 0) {
+            $pdo->exec('DELETE FROM organizations WHERE id = ' . $organizationId);
         }
     }
 });
@@ -3693,11 +4081,18 @@ $runner->test('public rental item listing exposes only publishable items', stati
             ]);
         };
 
-        $visibleItem = $createItem('public-visible-' . $suffix, 'Public Visible ' . $suffix);
+        $nameSearchTerm = 'NameNeedle' . $suffix;
+        $shortNameSearchTerm = 'ShortNeedle' . $suffix;
+        $descriptionSearchTerm = 'DescriptionNeedle' . $suffix;
+        $visibleItem = $createItem('public-visible-' . $suffix, 'Public Visible ' . $nameSearchTerm, [
+            'short_name' => 'Visible ' . $shortNameSearchTerm,
+            'description' => 'Public text ' . $descriptionSearchTerm,
+        ]);
         $addDailyRate($visibleItem);
 
         $draftItem = $createItem('public-draft-' . $suffix, 'Public Draft ' . $suffix, [
             'publication_status_key' => 'draft',
+            'description' => 'Hidden ' . $descriptionSearchTerm,
         ]);
         $addDailyRate($draftItem);
 
@@ -3729,13 +4124,26 @@ $runner->test('public rental item listing exposes only publishable items', stati
         $softDeletedRate = $addDailyRate($softDeletedRateItem);
         $itemRateRepository->delete((int) $softDeletedRate->toArray()['id'], $organizationId);
 
+        $literalSearchTerm = 'literal%_windows\\path-' . $suffix;
+        $literalSearchItem = $createItem(
+            'public-literal-search-' . $suffix,
+            'Public ' . $literalSearchTerm
+        );
+        $addDailyRate($literalSearchItem);
+
+        $wildcardDecoyItem = $createItem(
+            'public-wildcard-decoy-' . $suffix,
+            'Public literalXXwindows\\path-' . $suffix
+        );
+        $addDailyRate($wildcardDecoyItem);
+
         $listing = $rentalItemRepository->findPublicListing()->toArray();
         $names = array_map(
             static fn (array $item): string => (string) ($item['name'] ?? ''),
             array_filter($listing, 'is_array')
         );
 
-        assertTrue(in_array('Public Visible ' . $suffix, $names, true), 'Published active rentable item with daily rate should show.');
+        assertTrue(in_array('Public Visible ' . $nameSearchTerm, $names, true), 'Published active rentable item with daily rate should show.');
         assertFalse(in_array('Public Draft ' . $suffix, $names, true), 'Draft item should not show.');
         assertFalse(in_array('Public Archived ' . $suffix, $names, true), 'Archived item should not show.');
         assertFalse(in_array('Public Soft Deleted ' . $suffix, $names, true), 'Soft-deleted item should not show.');
@@ -3745,9 +4153,45 @@ $runner->test('public rental item listing exposes only publishable items', stati
         assertFalse(in_array('Public Inactive Rate ' . $suffix, $names, true), 'Item with inactive daily rate should not show.');
         assertFalse(in_array('Public Soft Deleted Rate ' . $suffix, $names, true), 'Item with soft-deleted daily rate should not show.');
 
+        assertFalse(
+            (bool) $pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES),
+            'Public search regression must run with native PDO prepared statements.'
+        );
+
+        $searchNames = static fn (array $filters): array => array_map(
+            static fn (array $row): string => (string) ($row['name'] ?? ''),
+            $rentalItemRepository->findPublicListing($filters)->toArray()
+        );
+
+        assertSame(
+            ['Public Visible ' . $nameSearchTerm],
+            $searchNames(['q' => $nameSearchTerm]),
+            'Public search should match name with native prepared statements.'
+        );
+        assertSame(
+            ['Public Visible ' . $nameSearchTerm],
+            $searchNames(['q' => $shortNameSearchTerm]),
+            'Public search should match short name with native prepared statements.'
+        );
+        assertSame(
+            ['Public Visible ' . $nameSearchTerm],
+            $searchNames(['q' => $descriptionSearchTerm]),
+            'Public search should match description without exposing matching draft items.'
+        );
+        assertSame(
+            ['Public Visible ' . $nameSearchTerm],
+            $searchNames(['q' => $nameSearchTerm, 'category' => 'verktyg']),
+            'Public search should combine category and query filters.'
+        );
+        assertSame(
+            ['Public ' . $literalSearchTerm],
+            $searchNames(['q' => $literalSearchTerm]),
+            'Percent, underscore and backslash should be escaped as literal LIKE characters.'
+        );
+
         $visibleRow = null;
         foreach ($listing as $row) {
-            if (is_array($row) && ($row['name'] ?? null) === 'Public Visible ' . $suffix) {
+            if (is_array($row) && ($row['name'] ?? null) === 'Public Visible ' . $nameSearchTerm) {
                 $visibleRow = $row;
                 break;
             }
@@ -3766,7 +4210,7 @@ $runner->test('public rental item listing exposes only publishable items', stati
             ]],
         ]);
 
-        assertTrue(str_contains($html, 'Public Visible ' . $suffix), 'Public view should render visible item.');
+        assertTrue(str_contains($html, 'Public Visible ' . $nameSearchTerm), 'Public view should render visible item.');
         assertTrue(str_contains($html, '450 SEK/dag'), 'Public view should render daily rate.');
         assertTrue(
             str_contains($html, '/items/' . rawurlencode((string) $visibleRow['public_id']) . '/' . rawurlencode((string) $visibleRow['slug'])),

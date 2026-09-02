@@ -20,6 +20,19 @@ Granskningen är dokumenterande och releaseförberedande. Den ändrar inte affä
 
 ---
 
+# RC2 bugfix efter stagingtest
+
+Stagingtest av `v1.0.0-rc.1` på Polar55 identifierade två blockerande regressionsfel:
+
+- publik sökning återanvände en namngiven PDO-placeholder och gav `HY093` med native MySQL prepared statements
+- riktig HTTP-bilduppladdning flyttade PHP:s temporära originalfil innan bildvarianterna skapades
+
+RC2-fixen använder unika sökparametrar, skapar bildvarianter före den destruktiva originalflytten och loggar fångade uploadfel säkert. Regressionstester täcker native PDO-semantik, destruktiv flytt, rollback, temporärfilstädning och controllerloggning.
+
+Efter merge och ny RC-tagg krävs ett nytt staging-smoke-test av publik sökning och riktig HTTP-uppladdning innan `v1.0.0-rc.2` kan godkännas för vidare release.
+
+---
+
 # Dokument som låg till grund
 
 Följande dokument lästes inför granskningen:

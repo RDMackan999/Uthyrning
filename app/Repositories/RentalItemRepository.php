@@ -591,11 +591,14 @@ final class RentalItemRepository extends BaseRepository
         $searchQuery = $this->normalizeSearchQuery($filters['q'] ?? null);
 
         if ($searchQuery !== '') {
-            $params['search_query'] = '%' . $this->escapeLike($searchQuery) . '%';
+            $escapedSearchQuery = '%' . $this->escapeLike($searchQuery) . '%';
+            $params['search_name'] = $escapedSearchQuery;
+            $params['search_short_name'] = $escapedSearchQuery;
+            $params['search_description'] = $escapedSearchQuery;
             $sql .= ' AND (
-                    rental_items.name LIKE :search_query ESCAPE \'\\\\\'
-                    OR COALESCE(rental_items.short_name, \'\') LIKE :search_query ESCAPE \'\\\\\'
-                    OR COALESCE(rental_items.description, \'\') LIKE :search_query ESCAPE \'\\\\\'
+                    rental_items.name LIKE :search_name ESCAPE \'\\\\\'
+                    OR COALESCE(rental_items.short_name, \'\') LIKE :search_short_name ESCAPE \'\\\\\'
+                    OR COALESCE(rental_items.description, \'\') LIKE :search_description ESCAPE \'\\\\\'
                 )';
         }
 

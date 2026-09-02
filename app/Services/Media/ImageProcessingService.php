@@ -7,6 +7,7 @@ namespace App\Services\Media;
 use App\Core\Config;
 use App\Core\MediaException;
 use GdImage;
+use Throwable;
 
 /**
  * Creates safe web image variants from an already validated source image.
@@ -34,50 +35,64 @@ final class ImageProcessingService
         $sourceHeight = (int) ($imageInfo[1] ?? 0);
         $source = $this->loadImage($sourcePath, $mimeType);
         $variants = [];
+        $temporaryPaths = [];
 
-        foreach ($this->configuredVariants() as $variantKey => $size) {
-            [$width, $height] = $this->fitDimensions(
-                $sourceWidth,
-                $sourceHeight,
-                (int) ($size['width'] ?? 0),
-                (int) ($size['height'] ?? 0)
-            );
-            $target = imagecreatetruecolor($width, $height);
+        try {
+            foreach ($this->configuredVariants() as $variantKey => $size) {
+                [$width, $height] = $this->fitDimensions(
+                    $sourceWidth,
+                    $sourceHeight,
+                    (int) ($size['width'] ?? 0),
+                    (int) ($size['height'] ?? 0)
+                );
+                $target = imagecreatetruecolor($width, $height);
 
-            if (!$target instanceof GdImage) {
-                imagedestroy($source);
-                throw new MediaException('Bildvariant kunde inte skapas.');
+                if (!$target instanceof GdImage) {
+                    throw new MediaException('Bildvariant kunde inte skapas.');
+                }
+
+                try {
+                    $this->prepareCanvas($target, $mimeType);
+
+                    imagecopyresampled(
+                        $target,
+                        $source,
+                        0,
+                        0,
+                        0,
+                        0,
+                        $width,
+                        $height,
+                        $sourceWidth,
+                        $sourceHeight
+                    );
+
+                    $targetPath = $this->temporaryVariantPath($variantKey);
+                    $temporaryPaths[] = $targetPath;
+                    $this->saveImage($target, $targetPath, $mimeType);
+                } finally {
+                    imagedestroy($target);
+                }
+
+                $variants[$variantKey] = [
+                    'path' => $targetPath,
+                    'mime_type' => $mimeType,
+                    'file_size_bytes' => filesize($targetPath) ?: 0,
+                    'width' => $width,
+                    'height' => $height,
+                ];
+            }
+        } catch (Throwable $exception) {
+            foreach ($temporaryPaths as $temporaryPath) {
+                if (is_file($temporaryPath)) {
+                    @unlink($temporaryPath);
+                }
             }
 
-            $this->prepareCanvas($target, $mimeType);
-
-            imagecopyresampled(
-                $target,
-                $source,
-                0,
-                0,
-                0,
-                0,
-                $width,
-                $height,
-                $sourceWidth,
-                $sourceHeight
-            );
-
-            $targetPath = $this->temporaryVariantPath($variantKey);
-            $this->saveImage($target, $targetPath, $mimeType);
-            imagedestroy($target);
-
-            $variants[$variantKey] = [
-                'path' => $targetPath,
-                'mime_type' => $mimeType,
-                'file_size_bytes' => filesize($targetPath) ?: 0,
-                'width' => $width,
-                'height' => $height,
-            ];
+            throw $exception;
+        } finally {
+            imagedestroy($source);
         }
-
-        imagedestroy($source);
 
         return $variants;
     }
